@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ptone/gswarm/pkg/config"
 	"github.com/ptone/gswarm/pkg/runtime"
@@ -95,13 +96,33 @@ The agent will be created from a template and run in a detached container.`,
 		// 4. Launch container
 		rt := runtime.GetRuntime()
 
-		// Determine detached mode from templates (last one wins)
+		// Determine detached mode and tmux from templates (last one wins)
 		detached := true
+		useTmux := false
 		for _, tpl := range chain {
 			tplCfg, err := tpl.LoadConfig()
 			if err == nil {
 				detached = tplCfg.IsDetached()
+				if tplCfg.UseTmux {
+					useTmux = true
+				}
 			}
+		}
+
+		if useTmux {
+			tmuxImage := resolvedImage
+			if !strings.Contains(tmuxImage, ":") {
+				tmuxImage = tmuxImage + ":tmux"
+			} else {
+				parts := strings.SplitN(resolvedImage, ":", 2)
+				tmuxImage = parts[0] + ":tmux"
+			}
+
+			exists, err := rt.ImageExists(context.Background(), tmuxImage)
+			if err != nil || !exists {
+				return fmt.Errorf("tmux support requested but image '%s' not found. Please ensure the image has a :tmux tag.", tmuxImage)
+			}
+			resolvedImage = tmuxImage
 		}
 
 		// If user requested attach, we must run detached first then attach
@@ -116,6 +137,7 @@ The agent will be created from a template and run in a detached container.`,
 			Workspace: agentWorkspace,
 			Auth:      auth,
 			Detached:  detached || attach,
+			UseTmux:   useTmux,
 			Env: []string{
 				fmt.Sprintf("GEMINI_INITIAL_PROMPT=%s", task),
 				fmt.Sprintf("GEMINI_AGENT_NAME=%s", agentName),
