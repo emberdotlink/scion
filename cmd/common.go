@@ -45,7 +45,7 @@ func DeleteAgentFiles(agentName string) error {
 	return nil
 }
 
-func ProvisionAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, []*config.Template, error) {
+func ProvisionAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, *config.ScionConfig, error) {
 	// 1. Prepare agent directories
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
@@ -138,5 +138,31 @@ func ProvisionAgent(agentName string, templateName string, agentImage string, gr
 	agentCfgData, _ := json.MarshalIndent(finalScionCfg, "", "  ")
 	os.WriteFile(filepath.Join(agentHome, "scion.json"), agentCfgData, 0644)
 
-	return agentHome, agentWorkspace, chain, nil
+	return agentHome, agentWorkspace, finalScionCfg, nil
+}
+
+func GetAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, string, *config.ScionConfig, error) {
+	projectDir, err := config.GetResolvedProjectDir(grovePath)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	agentsDir := filepath.Join(projectDir, "agents")
+	agentDir := filepath.Join(agentsDir, agentName)
+	agentHome := filepath.Join(agentDir, "home")
+	agentWorkspace := filepath.Join(agentDir, "workspace")
+
+	if _, err := os.Stat(agentDir); os.IsNotExist(err) {
+		fmt.Printf("Provisioning agent '%s'...\n", agentName)
+		home, ws, cfg, err := ProvisionAgent(agentName, templateName, agentImage, grovePath, optionalStatus)
+		return agentDir, home, ws, cfg, err
+	}
+
+	fmt.Printf("Using existing agent '%s'...\n", agentName)
+	// Load from existing agent's scion.json
+	tpl := &config.Template{Path: agentHome}
+	cfg, err := tpl.LoadConfig()
+	if err != nil {
+		return agentDir, agentHome, agentWorkspace, nil, fmt.Errorf("failed to load agent config: %w", err)
+	}
+	return agentDir, agentHome, agentWorkspace, cfg, nil
 }

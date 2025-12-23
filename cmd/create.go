@@ -3,10 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -33,24 +30,7 @@ The agent will be created from a template.`,
 			}
 		}
 
-		projectDir, err := config.GetResolvedProjectDir(grovePath)
-		if err != nil {
-			return err
-		}
-		agentsDir := filepath.Join(projectDir, "agents")
-		agentDir := filepath.Join(agentsDir, agentName)
-		workspaceDir := filepath.Join(agentDir, "workspace")
-
-		if _, err := os.Stat(agentDir); err == nil {
-			if _, err := os.Stat(workspaceDir); err == nil {
-				fmt.Printf("Agent '%s' already exists.\n", agentName)
-				return nil
-			}
-		}
-
-		fmt.Printf("Creating agent '%s'...\n", agentName)
-
-		_, _, _, err = ProvisionAgent(agentName, templateName, agentImage, grovePath, "created")
+		_, _, _, _, err = GetAgent(agentName, templateName, agentImage, grovePath, "created")
 		if err != nil {
 			return err
 		}

@@ -69,8 +69,11 @@ look for a prompt.md file in its root directory.`,
 			return err
 		}
 		groveName := config.GetGroveName(projectDir)
-		agentsDir := filepath.Join(projectDir, "agents")
-		agentDir := filepath.Join(agentsDir, agentName)
+		
+		agentDir, agentHome, agentWorkspace, finalScionCfg, err := GetAgent(agentName, templateName, agentImage, grovePath, "")
+		if err != nil {
+			return err
+		}
 
 		promptFile := filepath.Join(agentDir, "prompt.md")
 		promptFileContent := ""
@@ -91,35 +94,6 @@ look for a prompt.md file in its root directory.`,
 		} else if promptFileContent == "" {
 			// Update prompt.md for posterity if it was empty
 			_ = os.WriteFile(promptFile, []byte(task), 0644)
-		}
-
-		agentHome := filepath.Join(agentDir, "home")
-		agentWorkspace := filepath.Join(agentDir, "workspace")
-
-		var finalScionCfg *config.ScionConfig
-
-		if _, err := os.Stat(agentDir); os.IsNotExist(err) {
-			fmt.Printf("Provisioning agent '%s'...\n", agentName)
-			var chain []*config.Template
-			agentHome, agentWorkspace, chain, err = ProvisionAgent(agentName, templateName, agentImage, grovePath, "")
-			if err != nil {
-				return err
-			}
-			// Get the final config from the chain
-			for _, tpl := range chain {
-				tplCfg, err := tpl.LoadConfig()
-				if err == nil {
-					finalScionCfg = tplCfg
-				}
-			}
-		} else {
-			fmt.Printf("Using existing agent '%s'...\n", agentName)
-			// Load from existing agent's scion.json
-			tpl := &config.Template{Path: agentHome}
-			finalScionCfg, err = tpl.LoadConfig()
-			if err != nil {
-				return fmt.Errorf("failed to load agent config: %w", err)
-			}
 		}
 
 		fmt.Printf("Starting agent '%s' for task: %s\n", agentName, task)
