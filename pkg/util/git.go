@@ -31,12 +31,12 @@ func IsIgnored(path string) bool {
 
 // CreateWorktree creates a new git worktree at the specified path with a new branch.
 func CreateWorktree(path, branch string) error {
-	// git worktree add -b <branch> <path>
-	cmd := exec.Command("git", "worktree", "add", "-b", branch, path)
+	// git worktree add --relative-paths -b <branch> <path>
+	cmd := exec.Command("git", "worktree", "add", "--relative-paths", "-b", branch, path)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// If branch already exists, try to just add it
 		if strings.Contains(string(output), "already exists") {
-			cmd = exec.Command("git", "worktree", "add", path, branch)
+			cmd = exec.Command("git", "worktree", "add", "--relative-paths", path, branch)
 			return cmd.Run()
 		}
 		return err

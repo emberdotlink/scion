@@ -304,6 +304,11 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		template = finalScionCfg.Template
 	}
 
+	repoRoot := ""
+	if util.IsGitRepo() {
+		repoRoot, _ = util.RepoRoot()
+	}
+
 	runCfg := runtime.RunConfig{
 		Name:         agentName,
 		Template:     template,
@@ -311,6 +316,7 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		Image:        resolvedImage,
 		HomeDir:      agentHome,
 		Workspace:    agentWorkspace,
+		RepoRoot:     repoRoot,
 		Auth:         auth,
 		UseTmux:      useTmux,
 		Model:        resolvedModel,

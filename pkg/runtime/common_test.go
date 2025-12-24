@@ -183,6 +183,21 @@ func TestBuildCommonRunArgs(t *testing.T) {
 				"-e GEMINI_DEFAULT_AUTH_TYPE=oauth-personal",
 			},
 		},
+		{
+			name: "git relative workspace",
+			config: RunConfig{
+				Name:         "test-agent",
+				UnixUsername: "scion",
+				RepoRoot:     "/home/user/repo",
+				Workspace:    "/home/user/repo/.scion/agents/test-agent/workspace",
+				Image:        "scion-agent:latest",
+			},
+			wantIn: []string{
+				"-v /home/user/repo/.git:/repo-root/.git",
+				"-v /home/user/repo/.scion/agents/test-agent/workspace:/repo-root/.scion/agents/test-agent/workspace",
+				"--workdir /repo-root/.scion/agents/test-agent/workspace",
+			},
+		},
 	}
 
 		for _, tt := range tests {

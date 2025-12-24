@@ -25,6 +25,7 @@ type RunConfig struct {
 	Image        string
 	HomeDir      string
 	Workspace    string
+	RepoRoot     string
 	Env          []string
 	Labels       map[string]string
 	Auth         config.AuthConfig

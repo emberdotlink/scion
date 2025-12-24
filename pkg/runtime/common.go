@@ -30,7 +30,21 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 	if config.HomeDir != "" {
 		addArg("-v", fmt.Sprintf("%s:/home/%s", config.HomeDir, config.UnixUsername))
 	}
-	if config.Workspace != "" {
+	if config.RepoRoot != "" && config.Workspace != "" {
+		relWorkspace, err := filepath.Rel(config.RepoRoot, config.Workspace)
+		if err == nil && !strings.HasPrefix(relWorkspace, "..") {
+			// Mount .git
+			addArg("-v", fmt.Sprintf("%s/.git:/repo-root/.git", config.RepoRoot))
+			// Mount workspace at same relative path
+			containerWorkspace := filepath.Join("/repo-root", relWorkspace)
+			addArg("-v", fmt.Sprintf("%s:%s", config.Workspace, containerWorkspace))
+			addArg("--workdir", containerWorkspace)
+		} else {
+			// Fallback if workspace is outside repo root
+			addArg("-v", fmt.Sprintf("%s:/workspace", config.Workspace))
+			addArg("--workdir", "/workspace")
+		}
+	} else if config.Workspace != "" {
 		addArg("-v", fmt.Sprintf("%s:/workspace", config.Workspace))
 		addArg("--workdir", "/workspace")
 	}
