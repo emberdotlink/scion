@@ -72,7 +72,8 @@ type AgentInfo struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 	ContainerStatus string        `json:"containerStatus,omitempty"` // Container status (e.g., Up 2 hours)
-	Status      string            `json:"status,omitempty"`          // Scion agent high-level status (e.g., running, stopped)
+	Status          string            `json:"status,omitempty"`          // Scion agent high-level status (e.g., running, stopped)
+	SessionStatus   string            `json:"sessionStatus,omitempty"`   // Agent session status (e.g., started, waiting, completed)
 	Image       string            `json:"image,omitempty"`
 	Detached    bool              `json:"detached,omitempty"`
 	Runtime     string            `json:"runtime,omitempty"`

@@ -48,7 +48,7 @@ func DeleteAgentFiles(agentName string, grovePath string) error {
 func (m *AgentManager) Provision(ctx context.Context, opts api.StartOptions) (*api.ScionConfig, error) {
 	_, _, _, cfg, err := GetAgent(ctx, opts.Name, opts.Template, opts.Image, opts.GrovePath, "created")
 	if err == nil {
-		_ = UpdateAgentConfig(opts.Name, opts.GrovePath, "created", m.Runtime.Name(), opts.Profile)
+		_ = UpdateAgentConfig(opts.Name, opts.GrovePath, "created", m.Runtime.Name(), opts.Profile, "")
 	}
 	return cfg, err
 }
@@ -131,9 +131,10 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		finalScionCfg = &api.ScionConfig{}
 	}
 	finalScionCfg.Info = &api.AgentInfo{
-		Grove:    groveName,
-		Name:     agentName,
-		Template: templateName,
+		Grove:         groveName,
+		Name:          agentName,
+		Template:      templateName,
+		SessionStatus: "ACTIVE",
 	}
 	if optionalStatus != "" {
 		finalScionCfg.Info.Status = optionalStatus
@@ -204,7 +205,7 @@ func GetSavedRuntime(agentName string, grovePath string) string {
 	return ""
 }
 
-func UpdateAgentConfig(agentName string, grovePath string, status string, runtime string, profile string) error {
+func UpdateAgentConfig(agentName string, grovePath string, status string, runtime string, profile string, sessionStatus string) error {
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
 		return err
@@ -240,6 +241,9 @@ func UpdateAgentConfig(agentName string, grovePath string, status string, runtim
 	}
 	if profile != "" {
 		cfg.Info.Profile = profile
+	}
+	if sessionStatus != "" {
+		cfg.Info.SessionStatus = sessionStatus
 	}
 
 	newData, err := json.MarshalIndent(cfg, "", "  ")

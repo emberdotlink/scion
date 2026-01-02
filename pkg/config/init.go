@@ -44,6 +44,14 @@ func SeedTemplateDir(templateDir, templateName, harness, embedDir, configDirName
 		return string(data)
 	}
 
+	readCommonEmbed := func(name string) string {
+		data, err := embedsFS.ReadFile(filepath.Join("embeds", "common", name))
+		if err != nil {
+			return ""
+		}
+		return string(data)
+	}
+
 	scionJSONStr := readEmbed("scion-agent.json")
 	var scionConfig api.ScionConfig
 	if err := json.Unmarshal([]byte(scionJSONStr), &scionConfig); err != nil {
@@ -76,34 +84,38 @@ func SeedTemplateDir(templateDir, templateName, harness, embedDir, configDirName
 	files := []struct {
 		path    string
 		content string
+		mode    os.FileMode
 	}{
-		{filepath.Join(templateDir, "scion-agent.json"), scionJSONStr},
-		{filepath.Join(templateDir, "scion_hook.py"), readEmbed("scion_hook.py")},
-		{filepath.Join(templateDir, configDirName, "settings.json"), readEmbed("settings.json")},
-		{filepath.Join(templateDir, configDirName, "system_prompt.md"), readEmbed("system_prompt.md")},
-		{filepath.Join(templateDir, configDirName, mdFile), readEmbed(mdFile)},
-		{filepath.Join(templateDir, ".bashrc"), readEmbed("bashrc")},
+		{filepath.Join(templateDir, "scion-agent.json"), scionJSONStr, 0644},
+		{filepath.Join(templateDir, "scion_hook.py"), readEmbed("scion_hook.py"), 0644},
+		{filepath.Join(templateDir, "scion_tool.py"), readCommonEmbed("scion_tool.py"), 0644},
+		{filepath.Join(templateDir, "sciontool"), "#!/bin/bash\npython3 $HOME/scion_tool.py \"$@\"\n", 0755},
+		{filepath.Join(templateDir, configDirName, "settings.json"), readEmbed("settings.json"), 0644},
+		{filepath.Join(templateDir, configDirName, "system_prompt.md"), readEmbed("system_prompt.md"), 0644},
+		{filepath.Join(templateDir, configDirName, mdFile), readEmbed(mdFile), 0644},
+		{filepath.Join(templateDir, ".bashrc"), readEmbed("bashrc"), 0644},
 	}
 
 	if claudeJSON != "" {
 		files = append(files, struct {
 			path    string
 			content string
-		}{filepath.Join(templateDir, ".claude.json"), claudeJSON})
+			mode    os.FileMode
+		}{filepath.Join(templateDir, ".claude.json"), claudeJSON, 0644})
 	}
 
 	for _, f := range files {
 		// Always write settings.json and .claude.json to ensure they match current defaults
 		baseName := filepath.Base(f.path)
 		if force || baseName == "settings.json" || baseName == ".claude.json" {
-			if err := os.WriteFile(f.path, []byte(f.content), 0644); err != nil {
+			if err := os.WriteFile(f.path, []byte(f.content), f.mode); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", f.path, err)
 			}
 			continue
 		}
 
 		if _, err := os.Stat(f.path); os.IsNotExist(err) {
-			if err := os.WriteFile(f.path, []byte(f.content), 0644); err != nil {
+			if err := os.WriteFile(f.path, []byte(f.content), f.mode); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", f.path, err)
 			}
 		}

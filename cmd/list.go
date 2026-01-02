@@ -55,17 +55,21 @@ var listCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tTEMPLATE\tRUNTIME\tGROVE\tAGENT STATUS\tCONTAINER")
+		fmt.Fprintln(w, "NAME\tTEMPLATE\tRUNTIME\tGROVE\tAGENT STATUS\tSESSION\tCONTAINER")
 		for _, a := range agents {
 			agentStatus := a.Status
 			if agentStatus == "" {
 				agentStatus = "IDLE"
 			}
+			sessionStatus := a.SessionStatus
+			if sessionStatus == "" {
+				sessionStatus = "-"
+			}
 			containerStatus := a.ContainerStatus
 			if containerStatus == "created" && a.ID == "" {
 				containerStatus = "none"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Name, a.Template, a.Runtime, a.Grove, agentStatus, containerStatus)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Name, a.Template, a.Runtime, a.Grove, agentStatus, sessionStatus, containerStatus)
 		}
 		w.Flush()
 		return nil

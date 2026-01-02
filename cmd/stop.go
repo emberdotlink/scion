@@ -32,8 +32,10 @@ var stopCmd = &cobra.Command{
 			return err
 		}
 
-		_ = agent.UpdateAgentConfig(agentName, grovePath, "stopped", "", "")
-				if stopRm {			if err := mgr.Delete(context.Background(), agentName, true, grovePath); err != nil {
+		_ = agent.UpdateAgentConfig(agentName, grovePath, "stopped", "", "", "")
+
+		if stopRm {
+			if err := mgr.Delete(context.Background(), agentName, true, grovePath); err != nil {
 				return err
 			}
 			fmt.Printf("Agent '%s' stopped and removed.\n", agentName)
@@ -49,4 +51,3 @@ func init() {
 	stopCmd.Flags().BoolVar(&stopRm, "rm", false, "Remove the agent after stopping")
 	rootCmd.AddCommand(stopCmd)
 }
-

@@ -52,11 +52,29 @@ func (m *AgentManager) List(ctx context.Context, filter map[string]string) ([]ap
 	for i := range agents {
 		runningNames[agents[i].Name] = true
 		if agents[i].GrovePath != "" {
-			scionJSON := filepath.Join(agents[i].GrovePath, "agents", agents[i].Name, "scion-agent.json")
+			agentDir := filepath.Join(agents[i].GrovePath, "agents", agents[i].Name)
+			scionJSON := filepath.Join(agentDir, "scion-agent.json")
+			agentInfoJSON := filepath.Join(agentDir, "home", "agent-info.json")
+
+			// Try agent-info.json first for latest status from container
+			if data, err := os.ReadFile(agentInfoJSON); err == nil {
+				var info api.AgentInfo
+				if err := json.Unmarshal(data, &info); err == nil {
+					agents[i].Status = info.Status
+					agents[i].SessionStatus = info.SessionStatus
+				}
+			}
+
+			// Then load scion-agent.json for other metadata or if status not in info
 			if data, err := os.ReadFile(scionJSON); err == nil {
 				var cfg api.ScionConfig
 				if err := json.Unmarshal(data, &cfg); err == nil && cfg.Info != nil {
-					agents[i].Status = cfg.Info.Status
+					if agents[i].Status == "" {
+						agents[i].Status = cfg.Info.Status
+					}
+					if agents[i].SessionStatus == "" {
+						agents[i].SessionStatus = cfg.Info.SessionStatus
+					}
 					if agents[i].Runtime == "" {
 						agents[i].Runtime = cfg.Info.Runtime
 					}
@@ -83,14 +101,34 @@ func (m *AgentManager) List(ctx context.Context, filter map[string]string) ([]ap
 				continue
 			}
 
-			// Check scion-agent.json
-			agentScionJSON := filepath.Join(agentsDir, e.Name(), "scion-agent.json")
+			// Check scion-agent.json and home/agent-info.json
+			agentDir := filepath.Join(agentsDir, e.Name())
+			agentScionJSON := filepath.Join(agentDir, "scion-agent.json")
+			agentInfoJSON := filepath.Join(agentDir, "home", "agent-info.json")
+
+			var status, sessionStatus string
+			
+			// Try agent-info.json first
+			if data, err := os.ReadFile(agentInfoJSON); err == nil {
+				var info api.AgentInfo
+				if err := json.Unmarshal(data, &info); err == nil {
+					status = info.Status
+					sessionStatus = info.SessionStatus
+				}
+			}
+
 			data, err := os.ReadFile(agentScionJSON)
 			if err != nil {
 				continue
 			}
 			var cfg api.ScionConfig
 			if err := json.Unmarshal(data, &cfg); err == nil && cfg.Info != nil {
+				if status == "" {
+					status = cfg.Info.Status
+				}
+				if sessionStatus == "" {
+					sessionStatus = cfg.Info.SessionStatus
+				}
 				agents = append(agents, api.AgentInfo{
 					Name:            e.Name(),
 					Template:        cfg.Info.Template,
@@ -98,7 +136,8 @@ func (m *AgentManager) List(ctx context.Context, filter map[string]string) ([]ap
 					GrovePath:       gp,
 					ContainerStatus: "created",
 					Image:           cfg.Info.Image,
-					Status:          cfg.Info.Status,
+					Status:          status,
+					SessionStatus:   sessionStatus,
 					Runtime:         cfg.Info.Runtime,
 					Profile:         cfg.Info.Profile,
 				})

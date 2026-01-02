@@ -1,6 +1,5 @@
 # scion ignore
-.scion/agents/
-.scion_worktrees/
+.scion/
 # binaries
 scion
 scion-agent
