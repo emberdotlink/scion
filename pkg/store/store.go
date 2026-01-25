@@ -1,0 +1,247 @@
+package store
+
+import (
+	"context"
+	"errors"
+)
+
+// Common errors returned by store implementations.
+var (
+	ErrNotFound        = errors.New("not found")
+	ErrAlreadyExists   = errors.New("already exists")
+	ErrVersionConflict = errors.New("version conflict")
+	ErrInvalidInput    = errors.New("invalid input")
+)
+
+// Store defines the interface for Hub data persistence.
+// Implementations may use SQLite, PostgreSQL, Firestore, or other backends.
+type Store interface {
+	// Close releases any resources held by the store.
+	Close() error
+
+	// Ping checks connectivity to the underlying database.
+	Ping(ctx context.Context) error
+
+	// Migrate applies any pending database migrations.
+	Migrate(ctx context.Context) error
+
+	// Agent operations
+	AgentStore
+
+	// Grove operations
+	GroveStore
+
+	// RuntimeHost operations
+	RuntimeHostStore
+
+	// Template operations
+	TemplateStore
+
+	// User operations
+	UserStore
+
+	// GroveContributor operations
+	GroveContributorStore
+}
+
+// AgentStore defines agent-related persistence operations.
+type AgentStore interface {
+	// CreateAgent creates a new agent record.
+	// Returns ErrAlreadyExists if an agent with the same ID exists.
+	CreateAgent(ctx context.Context, agent *Agent) error
+
+	// GetAgent retrieves an agent by ID.
+	// Returns ErrNotFound if the agent doesn't exist.
+	GetAgent(ctx context.Context, id string) (*Agent, error)
+
+	// GetAgentBySlug retrieves an agent by its slug within a grove.
+	// Returns ErrNotFound if the agent doesn't exist.
+	GetAgentBySlug(ctx context.Context, groveID, slug string) (*Agent, error)
+
+	// UpdateAgent updates an existing agent.
+	// Uses optimistic locking via StateVersion.
+	// Returns ErrNotFound if agent doesn't exist.
+	// Returns ErrVersionConflict if the version doesn't match.
+	UpdateAgent(ctx context.Context, agent *Agent) error
+
+	// DeleteAgent removes an agent by ID.
+	// Returns ErrNotFound if the agent doesn't exist.
+	DeleteAgent(ctx context.Context, id string) error
+
+	// ListAgents returns agents matching the filter criteria.
+	ListAgents(ctx context.Context, filter AgentFilter, opts ListOptions) (*ListResult[Agent], error)
+
+	// UpdateAgentStatus updates only status-related fields.
+	// This is a partial update that doesn't require version checking.
+	UpdateAgentStatus(ctx context.Context, id string, status AgentStatusUpdate) error
+}
+
+// AgentFilter defines criteria for filtering agents.
+type AgentFilter struct {
+	GroveID       string
+	RuntimeHostID string
+	Status        string
+	OwnerID       string
+}
+
+// AgentStatusUpdate contains fields for status-only updates.
+type AgentStatusUpdate struct {
+	Status          string
+	ConnectionState string
+	ContainerStatus string
+	SessionStatus   string
+	RuntimeState    string
+	TaskSummary     string
+}
+
+// GroveStore defines grove-related persistence operations.
+type GroveStore interface {
+	// CreateGrove creates a new grove record.
+	// Returns ErrAlreadyExists if a grove with the same git remote exists.
+	CreateGrove(ctx context.Context, grove *Grove) error
+
+	// GetGrove retrieves a grove by ID.
+	// Returns ErrNotFound if the grove doesn't exist.
+	GetGrove(ctx context.Context, id string) (*Grove, error)
+
+	// GetGroveBySlug retrieves a grove by its slug.
+	// Returns ErrNotFound if the grove doesn't exist.
+	GetGroveBySlug(ctx context.Context, slug string) (*Grove, error)
+
+	// GetGroveByGitRemote retrieves a grove by its normalized git remote URL.
+	// Returns ErrNotFound if the grove doesn't exist.
+	GetGroveByGitRemote(ctx context.Context, gitRemote string) (*Grove, error)
+
+	// UpdateGrove updates an existing grove.
+	// Returns ErrNotFound if the grove doesn't exist.
+	UpdateGrove(ctx context.Context, grove *Grove) error
+
+	// DeleteGrove removes a grove by ID.
+	// Returns ErrNotFound if the grove doesn't exist.
+	DeleteGrove(ctx context.Context, id string) error
+
+	// ListGroves returns groves matching the filter criteria.
+	ListGroves(ctx context.Context, filter GroveFilter, opts ListOptions) (*ListResult[Grove], error)
+}
+
+// GroveFilter defines criteria for filtering groves.
+type GroveFilter struct {
+	OwnerID       string
+	Visibility    string
+	GitRemotePrefix string
+	HostID        string // Filter by contributing host
+}
+
+// RuntimeHostStore defines runtime host persistence operations.
+type RuntimeHostStore interface {
+	// CreateRuntimeHost creates a new runtime host record.
+	CreateRuntimeHost(ctx context.Context, host *RuntimeHost) error
+
+	// GetRuntimeHost retrieves a runtime host by ID.
+	// Returns ErrNotFound if the host doesn't exist.
+	GetRuntimeHost(ctx context.Context, id string) (*RuntimeHost, error)
+
+	// UpdateRuntimeHost updates an existing runtime host.
+	// Returns ErrNotFound if the host doesn't exist.
+	UpdateRuntimeHost(ctx context.Context, host *RuntimeHost) error
+
+	// DeleteRuntimeHost removes a runtime host by ID.
+	// Returns ErrNotFound if the host doesn't exist.
+	DeleteRuntimeHost(ctx context.Context, id string) error
+
+	// ListRuntimeHosts returns runtime hosts matching the filter criteria.
+	ListRuntimeHosts(ctx context.Context, filter RuntimeHostFilter, opts ListOptions) (*ListResult[RuntimeHost], error)
+
+	// UpdateRuntimeHostHeartbeat updates the last heartbeat and status.
+	UpdateRuntimeHostHeartbeat(ctx context.Context, id string, status string, resources *HostResources) error
+}
+
+// RuntimeHostFilter defines criteria for filtering runtime hosts.
+type RuntimeHostFilter struct {
+	Type    string
+	Status  string
+	Mode    string
+	GroveID string
+}
+
+// TemplateStore defines template persistence operations.
+type TemplateStore interface {
+	// CreateTemplate creates a new template record.
+	CreateTemplate(ctx context.Context, template *Template) error
+
+	// GetTemplate retrieves a template by ID.
+	// Returns ErrNotFound if the template doesn't exist.
+	GetTemplate(ctx context.Context, id string) (*Template, error)
+
+	// GetTemplateBySlug retrieves a template by its slug and scope.
+	// Returns ErrNotFound if the template doesn't exist.
+	GetTemplateBySlug(ctx context.Context, slug, scope, groveID string) (*Template, error)
+
+	// UpdateTemplate updates an existing template.
+	// Returns ErrNotFound if the template doesn't exist.
+	UpdateTemplate(ctx context.Context, template *Template) error
+
+	// DeleteTemplate removes a template by ID.
+	// Returns ErrNotFound if the template doesn't exist.
+	DeleteTemplate(ctx context.Context, id string) error
+
+	// ListTemplates returns templates matching the filter criteria.
+	ListTemplates(ctx context.Context, filter TemplateFilter, opts ListOptions) (*ListResult[Template], error)
+}
+
+// TemplateFilter defines criteria for filtering templates.
+type TemplateFilter struct {
+	Scope   string
+	GroveID string
+	Harness string
+	OwnerID string
+}
+
+// UserStore defines user persistence operations.
+type UserStore interface {
+	// CreateUser creates a new user record.
+	CreateUser(ctx context.Context, user *User) error
+
+	// GetUser retrieves a user by ID.
+	// Returns ErrNotFound if the user doesn't exist.
+	GetUser(ctx context.Context, id string) (*User, error)
+
+	// GetUserByEmail retrieves a user by email.
+	// Returns ErrNotFound if the user doesn't exist.
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+
+	// UpdateUser updates an existing user.
+	// Returns ErrNotFound if the user doesn't exist.
+	UpdateUser(ctx context.Context, user *User) error
+
+	// DeleteUser removes a user by ID.
+	// Returns ErrNotFound if the user doesn't exist.
+	DeleteUser(ctx context.Context, id string) error
+
+	// ListUsers returns users matching the filter criteria.
+	ListUsers(ctx context.Context, filter UserFilter, opts ListOptions) (*ListResult[User], error)
+}
+
+// UserFilter defines criteria for filtering users.
+type UserFilter struct {
+	Role   string
+	Status string
+}
+
+// GroveContributorStore defines grove-host relationship operations.
+type GroveContributorStore interface {
+	// AddGroveContributor adds a host as a contributor to a grove.
+	AddGroveContributor(ctx context.Context, contrib *GroveContributor) error
+
+	// RemoveGroveContributor removes a host from a grove's contributors.
+	RemoveGroveContributor(ctx context.Context, groveID, hostID string) error
+
+	// GetGroveContributors returns all contributors to a grove.
+	GetGroveContributors(ctx context.Context, groveID string) ([]GroveContributor, error)
+
+	// GetHostGroves returns all groves a host contributes to.
+	GetHostGroves(ctx context.Context, hostID string) ([]GroveContributor, error)
+
+	// UpdateContributorStatus updates a contributor's status and last seen time.
+	UpdateContributorStatus(ctx context.Context, groveID, hostID, status string) error
+}
