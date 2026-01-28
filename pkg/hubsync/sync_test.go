@@ -274,6 +274,91 @@ func TestSyncResult_ExcludeAgent(t *testing.T) {
 	}
 }
 
+func TestSyncResult_PendingNotAffectIsInSync(t *testing.T) {
+	// Pending agents should not affect the IsInSync check
+	tests := []struct {
+		name     string
+		result   SyncResult
+		expected bool
+	}{
+		{
+			name: "only pending agents is in sync",
+			result: SyncResult{
+				ToRegister: nil,
+				ToRemove:   nil,
+				Pending:    []AgentRef{{Name: "pending-agent", ID: "pending-id"}},
+				InSync:     nil,
+			},
+			expected: true, // Pending agents don't require sync
+		},
+		{
+			name: "pending with in sync agents",
+			result: SyncResult{
+				ToRegister: nil,
+				ToRemove:   nil,
+				Pending:    []AgentRef{{Name: "pending-agent", ID: "pending-id"}},
+				InSync:     []string{"agent1"},
+			},
+			expected: true,
+		},
+		{
+			name: "pending with agents to register",
+			result: SyncResult{
+				ToRegister: []string{"new-agent"},
+				ToRemove:   nil,
+				Pending:    []AgentRef{{Name: "pending-agent", ID: "pending-id"}},
+				InSync:     nil,
+			},
+			expected: false, // ToRegister requires action
+		},
+		{
+			name: "pending with agents to remove",
+			result: SyncResult{
+				ToRegister: nil,
+				ToRemove:   []AgentRef{{Name: "old-agent", ID: "old-id"}},
+				Pending:    []AgentRef{{Name: "pending-agent", ID: "pending-id"}},
+				InSync:     nil,
+			},
+			expected: false, // ToRemove requires action
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.result.IsInSync(); got != tt.expected {
+				t.Errorf("IsInSync() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSyncResult_ExcludeAgent_WithPending(t *testing.T) {
+	result := SyncResult{
+		ToRegister: []string{"agent1"},
+		ToRemove:   []AgentRef{{Name: "agent2", ID: "id2"}},
+		Pending:    []AgentRef{{Name: "pending1", ID: "p1"}, {Name: "pending2", ID: "p2"}},
+		InSync:     []string{"agent3"},
+	}
+
+	// Exclude a pending agent
+	filtered := result.ExcludeAgent("pending1")
+
+	if len(filtered.Pending) != 1 {
+		t.Errorf("Expected 1 pending agent, got %d", len(filtered.Pending))
+	}
+	if len(filtered.Pending) > 0 && filtered.Pending[0].Name != "pending2" {
+		t.Errorf("Expected pending2, got %s", filtered.Pending[0].Name)
+	}
+
+	// Original lists should be unchanged
+	if len(filtered.ToRegister) != 1 {
+		t.Errorf("Expected 1 ToRegister agent, got %d", len(filtered.ToRegister))
+	}
+	if len(filtered.ToRemove) != 1 {
+		t.Errorf("Expected 1 ToRemove agent, got %d", len(filtered.ToRemove))
+	}
+}
+
 func TestContainsIgnoreCase(t *testing.T) {
 	tests := []struct {
 		s        string

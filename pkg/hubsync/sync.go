@@ -25,6 +25,7 @@ type SyncResult struct {
 	ToRegister []string   // Local agents to register on Hub
 	ToRemove   []AgentRef // Hub agents (for this host) to remove (with IDs for API)
 	InSync     []string   // Agents already in sync
+	Pending    []AgentRef // Hub agents in pending status (not yet started, no local artifacts expected)
 }
 
 // IsInSync returns true if there are no agents to sync.
@@ -33,7 +34,7 @@ func (r *SyncResult) IsInSync() bool {
 }
 
 // ExcludeAgent returns a new SyncResult with the specified agent excluded from
-// ToRegister and ToRemove lists. This is used when operating on a specific agent
+// ToRegister, ToRemove, and Pending lists. This is used when operating on a specific agent
 // so that the sync check doesn't require syncing the target of the operation.
 func (r *SyncResult) ExcludeAgent(agentName string) *SyncResult {
 	if agentName == "" {
@@ -53,6 +54,12 @@ func (r *SyncResult) ExcludeAgent(agentName string) *SyncResult {
 	for _, ref := range r.ToRemove {
 		if ref.Name != agentName {
 			result.ToRemove = append(result.ToRemove, ref)
+		}
+	}
+
+	for _, ref := range r.Pending {
+		if ref.Name != agentName {
+			result.Pending = append(result.Pending, ref)
 		}
 	}
 
@@ -286,9 +293,16 @@ func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error)
 	}
 
 	// Find agents to remove (on Hub for this host but not local)
+	// Skip agents in "pending" status - these are created on Hub but not yet started,
+	// so they're expected to not have local representation until the container is started.
 	for _, a := range resp.Agents {
 		if !localAgentMap[a.Name] {
-			result.ToRemove = append(result.ToRemove, AgentRef{Name: a.Name, ID: a.ID})
+			if a.Status == "pending" {
+				// Track pending agents separately - they don't require sync
+				result.Pending = append(result.Pending, AgentRef{Name: a.Name, ID: a.ID})
+			} else {
+				result.ToRemove = append(result.ToRemove, AgentRef{Name: a.Name, ID: a.ID})
+			}
 		}
 	}
 

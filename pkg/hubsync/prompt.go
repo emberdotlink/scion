@@ -65,6 +65,15 @@ func ShowSyncPlan(result *SyncResult, autoConfirm bool) bool {
 		}
 	}
 
+	// Show pending agents for visibility (they don't require action)
+	if len(result.Pending) > 0 {
+		fmt.Println()
+		fmt.Println("Agents pending on Hub (awaiting start):")
+		for _, ref := range result.Pending {
+			fmt.Printf("  ~ %s\n", ref.Name)
+		}
+	}
+
 	fmt.Println()
 	return ConfirmAction("Proceed with sync?", true, autoConfirm)
 }
