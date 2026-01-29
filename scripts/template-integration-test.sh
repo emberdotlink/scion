@@ -170,29 +170,29 @@ start_server() {
     mkdir -p "$STORAGE_DIR"
     mkdir -p "$TEST_DIR/cache/templates"
 
-    local storage_args=""
-    if [[ "$USE_GCS" == "true" ]]; then
-        storage_args="--storage-bucket $STORAGE_BUCKET"
-    else
-        storage_args="--storage-dir $STORAGE_DIR"
-    fi
+    # Build command as array for proper handling
+    local cmd=("$TEST_DIR/scion" "server" "start"
+        "--enable-hub"
+        "--enable-runtime-host"
+        "--dev-auth"
+        "--port" "$HUB_PORT"
+        "--runtime-host-port" "$RUNTIME_HOST_PORT"
+        "--template-cache-dir" "$TEST_DIR/cache/templates"
+        "--template-cache-max" "10485760"
+    )
 
-    local cmd="$TEST_DIR/scion server start \
-        --enable-hub \
-        --enable-runtime-host \
-        --dev-auth \
-        --port $HUB_PORT \
-        --runtime-host-port $RUNTIME_HOST_PORT \
-        --template-cache-dir $TEST_DIR/cache/templates \
-        --template-cache-max 10485760 \
-        $storage_args"
+    if [[ "$USE_GCS" == "true" ]]; then
+        cmd+=("--storage-bucket" "$STORAGE_BUCKET")
+    else
+        cmd+=("--storage-dir" "$STORAGE_DIR")
+    fi
 
     if [[ "$VERBOSE" == "true" ]]; then
-        cmd="$cmd --debug"
+        cmd+=("--debug")
     fi
 
-    log_info "Starting server..."
-    $cmd > "$TEST_DIR/server.log" 2>&1 &
+    log_info "Starting server: ${cmd[*]}"
+    "${cmd[@]}" > "$TEST_DIR/server.log" 2>&1 &
     SERVER_PID=$!
 
     # Wait for server to be ready
