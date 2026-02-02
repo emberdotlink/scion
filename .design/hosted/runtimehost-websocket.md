@@ -5,7 +5,7 @@
 This document consolidates the WebSocket-related design for communication between the Hub and Runtime Hosts. The WebSocket connection serves two primary purposes:
 
 1. **Control Channel**: Hub-initiated commands to Runtime Hosts (for NAT/firewall traversal)
-2. **PTY Streaming**: Bidirectional terminal access from browsers to agent containers
+2. **PTY Streaming**: Bidirectional terminal access from browsers/CLI to agent containers
 
 ---
 
@@ -46,7 +46,7 @@ The Runtime Host initiates a persistent WebSocket connection to the Hub. This co
 |------|-------------|
 | NAT traversal | Hosts behind NAT/firewalls can receive Hub commands |
 | Low latency | Real-time PTY streaming for interactive use |
-| Simplicity | Minimal connection management complexity |
+| Simplicity | Reuse existing REST API logic where possible |
 | Resilience | Graceful reconnection with state reconciliation |
 | Security | Authenticated connections with TLS |
 
@@ -65,9 +65,9 @@ The Runtime Host initiates a persistent WebSocket connection to the Hub. This co
 │                 │   (Host-initiated) │                 │
 └─────────────────┘                    └─────────────────┘
         │                                      │
-        │  Commands (Hub → Host)               │
+        │  HTTP Requests (Tunneled)            │
         │  ◄────────────────────               │
-        │  Events (Host → Hub)                 │
+        │  HTTP Responses (Tunneled)           │
         │  ────────────────────►               │
         │                                      │
         │  Multiplexed Streams                 │
@@ -85,14 +85,14 @@ The Runtime Host initiates a persistent WebSocket connection to the Hub. This co
                     │  │ Control Channel    │  │
                     │  │ Manager            │  │
                     │  │                    │  │
-Browser ──WS──►     │  │ ┌──────┐ ┌──────┐  │  │ ◄──WS── Runtime Host A
+Browser/CLI ──WS──► │  │ ┌──────┐ ┌──────┐  │  │ ◄──WS── Runtime Host A
                     │  │ │Host A│ │Host B│  │  │
                     │  │ └──────┘ └──────┘  │  │ ◄──WS── Runtime Host B
                     │  └────────────────────┘  │
                     │                          │
                     │  ┌────────────────────┐  │
                     │  │ Stream Mapper      │  │
-                    │  │ (browser WS →      │  │
+                    │  │ (client WS →       │  │
                     │  │  host stream ID)   │  │
                     │  └────────────────────┘  │
                     └──────────────────────────┘
@@ -103,9 +103,9 @@ Browser ──WS──►     │  │ ┌──────┐ ┌────�
 | Endpoint | Direction | Purpose |
 |----------|-----------|---------|
 | `WS /api/v1/runtime-hosts/connect` | Host → Hub | Control channel (commands, events, streams) |
-| `WS /api/v1/agents/{id}/pty` | Browser → Hub | PTY access (proxied to host) |
-| `WS /api/v1/agents/{id}/events` | Browser → Hub | Agent status stream |
-| `WS /api/v1/groves/{id}/events` | Browser → Hub | Grove-wide events |
+| `WS /api/v1/agents/{id}/pty` | Client → Hub | PTY access (proxied to host) |
+| `WS /api/v1/agents/{id}/events` | Client → Hub | Agent status stream |
+| `WS /api/v1/groves/{id}/events` | Client → Hub | Grove-wide events |
 
 ---
 
@@ -174,62 +174,59 @@ X-Scion-Signature: HMAC-SHA256(secret, "{hostId}:{timestamp}:{nonce}:GET:/api/v1
 }
 ```
 
-### 3.3 Message Envelope
+### 3.3 HTTP Tunneling Protocol
 
-All messages use a consistent envelope structure:
+To support a unified API surface and allow the Hub to "dial" the Runtime Host regardless of network topology, the Control Channel acts as a tunnel for standard HTTP requests. This avoids maintaining a separate "command" schema and allows the Host to reuse its existing REST API handlers.
 
-**Command (Hub → Host):**
+**Request Envelope (Hub → Host):**
 ```json
 {
-  "type": "command",
-  "id": "cmd-uuid",
-  "command": "create_agent",
-  "payload": { ... }
+  "type": "request",
+  "requestId": "req-uuid-123",
+  "method": "POST",
+  "path": "/api/v1/agents",
+  "headers": {
+    "Content-Type": ["application/json"],
+    "X-Trace-ID": ["trace-abc"]
+  },
+  "body": "base64-encoded-body"
 }
 ```
 
-**Response (Host → Hub):**
+**Response Envelope (Host → Hub):**
 ```json
 {
   "type": "response",
-  "id": "cmd-uuid",
-  "success": true,
-  "payload": { ... },
-  "error": null
+  "requestId": "req-uuid-123",
+  "statusCode": 201,
+  "headers": {
+    "Content-Type": ["application/json"]
+  },
+  "body": "base64-encoded-body"
 }
 ```
 
-**Event (Host → Hub):**
-```json
-{
-  "type": "event",
-  "event": "agent_status",
-  "payload": { ... }
-}
-```
+### 3.4 Pros/Cons of HTTP Tunneling
 
-### 3.4 Command Types
+| Aspect | HTTP Tunneling | Custom Command Protocol |
+|--------|----------------|-------------------------|
+| **API Evolution** | **Pro**: Changes to REST API (e.g., adding fields) automatically work over WS. | **Con**: Requires updating command schemas and handlers separately. |
+| **Consistency** | **Pro**: Identical behavior for Direct HTTP and WS Tunnel. | **Con**: Subtle behavior differences likely to creep in. |
+| **Tooling** | **Pro**: Can use standard HTTP middleware (logging, auth, tracing). | **Con**: Requires custom middleware logic. |
+| **Overhead** | **Con**: Slightly higher byte count (headers, JSON wrapping). | **Pro**: Minimal payload. |
 
-| Command | Description |
-|---------|-------------|
-| `create_agent` | Create and start a new agent |
-| `start_agent` | Start a stopped agent |
-| `stop_agent` | Stop a running agent |
-| `delete_agent` | Delete an agent |
-| `exec` | Execute a command in an agent |
-| `open_stream` | Open a multiplexed stream (PTY, logs) |
-| `close_stream` | Close a multiplexed stream |
-| `ping` | Keepalive ping |
+**Recommendation:** Adopt HTTP Tunneling. The operational benefits of a single API implementation outweigh the negligible bandwidth overhead.
 
-### 3.5 Event Types
+### 3.5 Event Types (Host → Hub)
 
-| Event | Description |
-|-------|-------------|
-| `agent_status` | Agent status change |
-| `agent_created` | Agent creation completed |
-| `agent_deleted` | Agent deletion completed |
-| `heartbeat` | Periodic health check |
-| `resource_update` | Resource availability changed |
+For Host-to-Hub events (e.g., status updates, heartbeats), the Runtime Host **MUST** use standard, direct HTTP requests to the Hub API, authenticated via HMAC. 
+
+The WebSocket control channel is primarily for **Hub-initiated** traffic (Tunneling) and **Bidirectional Streaming** (PTY). It is not used for Host-initiated control plane events.
+
+**Why?**
+- **Simplicity:** Keeps the WebSocket protocol focused on "dial-in" capability.
+- **Reliability:** Standard HTTP retries and load balancing can be used for events.
+- **Scalability:** Events can be handled by any Hub instance, not just the one holding the WebSocket connection.
 
 ---
 
@@ -237,22 +234,18 @@ All messages use a consistent envelope structure:
 
 ### 4.1 Stream Multiplexing
 
-PTY sessions are multiplexed over the control channel using stream frames. Each stream has a unique `streamId` assigned by the Hub.
+PTY sessions are initiated via a special "Upgrade" request over the HTTP tunnel, which establishes a multiplexed stream.
 
-**Open Stream Command (Hub → Host):**
+**Upgrade Request (Hub → Host):**
 ```json
 {
-  "type": "command",
-  "id": "cmd-456",
-  "command": "open_stream",
-  "payload": {
-    "streamId": "stream-xyz",
-    "agentId": "agent-123",
-    "streamType": "pty",
-    "options": {
-      "cols": 120,
-      "rows": 40
-    }
+  "type": "request",
+  "requestId": "req-456",
+  "method": "GET",
+  "path": "/api/v1/agents/agent-123/attach",
+  "headers": {
+    "Upgrade": ["websocket"],
+    "X-Stream-ID": ["stream-xyz"]
   }
 }
 ```
@@ -286,14 +279,14 @@ PTY sessions are multiplexed over the control channel using stream frames. Each 
      │ /agents/{id}/pty  │                     │                      │
      │──────────────────►│                     │                      │
      │                   │                     │                      │
-     │                   │ open_stream         │                      │
-     │                   │ (streamId=xyz)      │                      │
+     │                   │ Tunnel Request      │                      │
+     │                   │ (Upgrade: PTY)      │                      │
      │                   │────────────────────►│                      │
      │                   │                     │                      │
      │                   │                     │ tmux attach          │
      │                   │                     │─────────────────────►│
      │                   │                     │                      │
-     │                   │ stream response     │                      │
+     │                   │ 101 Switching Proto │                      │
      │                   │◄────────────────────│                      │
      │                   │                     │                      │
      │ ◄─────────────────────────────────────► │ ◄───────────────────►│
@@ -301,9 +294,9 @@ PTY sessions are multiplexed over the control channel using stream frames. Each 
      │                   │                     │                      │
 ```
 
-### 4.3 PTY Message Format
+### 4.3 PTY Message Format (Browser/CLI ↔ Hub)
 
-**Browser ↔ Hub (client WebSocket):**
+**Data Message:**
 ```json
 {
   "type": "data",
@@ -320,17 +313,19 @@ PTY sessions are multiplexed over the control channel using stream frames. Each 
 }
 ```
 
-### 4.4 Stream ID Mapping
+### 4.4 CLI PTY Flow
 
-The Hub maintains a mapping between:
-- Client WebSocket connections (browser PTY endpoints)
-- Stream IDs on Runtime Host control channels
+The CLI acts similarly to a browser but uses standard user authentication.
 
-```
-Browser WS Connection ←→ streamId ←→ Host Control Channel
-```
-
-This allows multiple browsers to attach to different agents via the same Runtime Host control channel.
+1.  **Auth**: CLI obtains a user Bearer token (via `scion login`).
+2.  **Connect**: CLI connects to `wss://hub.example.com/api/v1/agents/{id}/attach`.
+    *   Header: `Authorization: Bearer <token>`
+3.  **Proxying**:
+    *   Hub validates the user token.
+    *   Hub locates the target Runtime Host.
+    *   Hub sends "Upgrade Request" (see 4.1) over the Control Channel to the Host.
+    *   Hub pipes the CLI WebSocket frames to the Host Stream frames.
+4.  **Terminal Mode**: CLI sets its local TTY to raw mode to handle special characters locally before sending.
 
 ---
 
@@ -364,24 +359,20 @@ Once the WebSocket is established with HMAC authentication:
 - Similar trust model to SSH after key exchange
 - Avoids per-message cryptographic overhead
 
-### 5.3 Browser WebSocket Authentication
+### 5.3 Client WebSocket Authentication
 
-Browsers cannot set custom HTTP headers on WebSocket connections. Two methods are supported:
+There are distinct authentication strategies for Browsers and CLI clients due to platform limitations.
 
-**1. Query Parameter Token:**
-```
-WS /api/v1/agents/{id}/pty?token=<bearer-token>
-```
+**Browser:**
+Browsers using the standard `WebSocket` API **cannot** add custom headers (like `Authorization`) to the initial handshake request. This is a known security limitation of the web platform.
+*   **Solution:** Use a short-lived, single-use "ticket" passed in the URL query string.
+    1. `POST /api/v1/auth/ws-ticket` -> `{ "ticket": "..." }` (Authenticated with cookie/session)
+    2. `WS /api/v1/agents/{id}/pty?ticket=<ticket>`
 
-**2. Ticket-Based Auth (Recommended):**
-```
-POST /api/v1/auth/ws-ticket
-→ { "ticket": "...", "expiresAt": "..." }
-
-WS /api/v1/agents/{id}/pty?ticket=<ticket>
-```
-
-Tickets are single-use and expire after 60 seconds.
+**CLI:**
+The CLI (e.g., using a library like `gorilla/websocket`) has full control over the handshake headers.
+*   **Solution:** Use the standard `Authorization` header with the Bearer token.
+    *   `WS /api/v1/agents/{id}/pty` with `Authorization: Bearer <token>`
 
 ---
 
@@ -437,21 +428,11 @@ The Hub supports two transport modes for communicating with Runtime Hosts:
 **Selection Logic:**
 
 ```
-When Hub needs to send command to Host:
-1. If Host has active control channel → use WebSocket
+When Hub needs to send request to Host:
+1. If Host has active control channel → use WebSocket Tunnel
 2. If Host has registered endpoint and status == "online" → attempt Direct HTTP
 3. Otherwise → return 502 runtime_error
 ```
-
-**Command Mapping:**
-
-| Control Channel Command | Direct HTTP Equivalent |
-|------------------------|----------------------|
-| `create_agent` | `POST /api/v1/agents` |
-| `stop_agent` | `POST /api/v1/agents/{id}/stop` |
-| `delete_agent` | `DELETE /api/v1/agents/{id}` |
-| `exec` | `POST /api/v1/agents/{id}/exec` |
-| `open_stream` | `GET /api/v1/agents/{id}/attach` (WebSocket) |
 
 ---
 
@@ -512,9 +493,17 @@ For horizontal scalability, a hybrid approach could decouple command delivery fr
 
 ### 8.3 Open Questions
 
-1. **Stream-ready WebSocket**: Should hosts maintain a persistent "stream-ready" WebSocket, or connect on-demand per stream?
-2. **Stream token expiration**: How to handle cleanup of unused stream tokens?
-3. **WebRTC**: Can browser-to-host PTY bypass the Hub using WebRTC in some scenarios?
+**1. Stream-ready WebSocket vs On-Demand**
+*Question:* Should hosts maintain a persistent "stream-ready" WebSocket, or connect on-demand per stream?
+*Recommendation:* **Multiplex over Control Channel**. Opening a new WebSocket connection from Host to Hub for every PTY session introduces latency and connection management overhead. Multiplexing over the existing authenticated control channel is more efficient and firewall-friendly.
+
+**2. Stream token expiration**
+*Question:* How to handle cleanup of unused stream tokens/tickets?
+*Recommendation:* **Short TTL + Single Use**. Tickets for browser WebSocket connection should expire in 60 seconds and be invalidated immediately upon use. This prevents replay attacks and accumulation of stale state in the Hub.
+
+**3. WebRTC**
+*Question:* Can browser-to-host PTY bypass the Hub using WebRTC in some scenarios?
+*Decision:* **No**. The Runtime Host is designed to operate in environments that are unreachable from the public internet (behind NAT/firewalls). While WebRTC *can* traverse NAT, the complexity of STUN/TURN setup outweighs the benefits for text-based PTY streams. All traffic will proxy through the Hub.
 
 ---
 
