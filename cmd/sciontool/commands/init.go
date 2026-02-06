@@ -311,23 +311,33 @@ func setupHostUser() (int, int) {
 	if currentInfo != nil {
 		currentUID, _ := strconv.Atoi(currentInfo.Uid)
 		currentGID, _ := strconv.Atoi(currentInfo.Gid)
+		log.Debug("Current scion user: UID=%d, GID=%d (Target: UID=%d, GID=%d)", currentUID, currentGID, uid, gid)
 		if currentUID == uid && currentGID == gid {
 			log.Debug("scion user already has correct UID/GID")
 			return uid, gid
 		}
+	} else {
+		log.Error("scion user not found in system")
 	}
 
-	log.Info("Setting scion user to UID=%d, GID=%d", uid, gid)
+	log.Info("Adjusting scion user to UID=%d, GID=%d", uid, gid)
 
 	// Modify group first (if different from current)
 	if err := exec.Command("groupmod", "-g", hostGID, "scion").Run(); err != nil {
-		log.Error("Failed to modify scion group: %v", err)
+		log.Error("Failed to modify scion group to %s: %v", hostGID, err)
 	}
 
 	// Modify user UID and primary group
 	if err := exec.Command("usermod", "-u", hostUID, "-g", hostGID, "scion").Run(); err != nil {
-		log.Error("Failed to modify scion user: %v", err)
+		log.Error("Failed to modify scion user to UID %s, GID %s: %v", hostUID, hostGID, err)
 		return 0, 0
+	}
+
+	// Verify the change
+	if updatedInfo, err := user.Lookup("scion"); err == nil {
+		log.Info("Successfully adjusted scion user: UID=%s, GID=%s", updatedInfo.Uid, updatedInfo.Gid)
+	} else {
+		log.Error("Failed to verify scion user after adjustment: %v", err)
 	}
 
 	return uid, gid

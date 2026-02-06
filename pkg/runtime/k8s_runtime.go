@@ -230,8 +230,14 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 	if config.Auth.GoogleAPIKey != "" {
 		envVars = append(envVars, corev1.EnvVar{Name: "GOOGLE_API_KEY", Value: config.Auth.GoogleAPIKey})
 	}
-	// Add other keys as needed
 
+	// Pass host user UID/GID for container user synchronization
+	envVars = append(envVars, corev1.EnvVar{Name: "SCION_HOST_UID", Value: fmt.Sprintf("%d", os.Getuid())})
+	envVars = append(envVars, corev1.EnvVar{Name: "SCION_HOST_GID", Value: fmt.Sprintf("%d", os.Getgid())})
+
+	// TODO: For Kubernetes, we should consider using PodSecurityContext with fsGroup
+	// to handle volume permissions more natively instead of relying on sciontool
+	// UID/GID adjustment.
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        config.Name,
@@ -240,6 +246,7 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 			Annotations: config.Annotations,
 		},
 		Spec: corev1.PodSpec{
+			// TODO: Set SecurityContext.FSGroup here to SCION_HOST_GID
 			Containers: []corev1.Container{
 				{
 					Name:            "agent",

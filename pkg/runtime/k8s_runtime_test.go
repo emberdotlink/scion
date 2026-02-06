@@ -73,3 +73,36 @@ func TestKubernetesRuntime_List(t *testing.T) {
 		t.Errorf("expected image test-image, got %s", agents[0].Image)
 	}
 }
+
+func TestKubernetesRuntime_BuildPod_Env(t *testing.T) {
+	clientset := k8sfake.NewSimpleClientset()
+	scheme := k8sruntime.NewScheme()
+	fc := fake.NewSimpleDynamicClient(scheme)
+	client := k8s.NewTestClient(fc, clientset)
+	r := NewKubernetesRuntime(client)
+
+	config := RunConfig{
+		Name: "test-agent",
+		Image: "test-image",
+	}
+
+	pod := r.buildPod("default", config)
+
+	foundUID := false
+	foundGID := false
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "SCION_HOST_UID" {
+			foundUID = true
+		}
+		if env.Name == "SCION_HOST_GID" {
+			foundGID = true
+		}
+	}
+
+	if !foundUID {
+		t.Errorf("SCION_HOST_UID not found in pod env")
+	}
+	if !foundGID {
+		t.Errorf("SCION_HOST_GID not found in pod env")
+	}
+}

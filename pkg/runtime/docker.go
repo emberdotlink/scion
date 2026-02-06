@@ -35,7 +35,7 @@ func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, erro
 
 	// Docker supports --init, which we want to use if possible.
 	// We insert it after 'run'
-	newArgs := []string{"run", "--init", "-t", "--user", "scion:scion"}
+	newArgs := []string{"run", "--init", "-t"}
 	newArgs = append(newArgs, args[1:]...)
 
 	out, err := runSimpleCommand(ctx, r.Command, newArgs...)

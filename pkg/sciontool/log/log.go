@@ -7,6 +7,7 @@ package log
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sync"
 	"time"
@@ -80,7 +81,7 @@ func write(level, tag, format string, args ...interface{}) {
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	message := fmt.Sprintf(format, args...)
-	
+
 	tagStr := ""
 	if tag != "" {
 		tagStr = fmt.Sprintf(" [%s]", tag)
@@ -88,7 +89,7 @@ func write(level, tag, format string, args ...interface{}) {
 
 	// Format for agent.log: timestamp [sciontool] [LEVEL] [TAG] message
 	fileEntry := fmt.Sprintf("%s [sciontool] [%s]%s %s\n", timestamp, level, tagStr, message)
-	
+
 	// Format for stderr: [sciontool] LEVEL: [TAG] message
 	stderrEntry := fmt.Sprintf("[sciontool] %s:%s %s\n", level, tagStr, message)
 
@@ -100,8 +101,37 @@ func write(level, tag, format string, args ...interface{}) {
 	defer mu.Unlock()
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		// If we can't write to agent.log, at least we wrote to stderr
-		return
+		// If we can't write to agent.log, try to fall back to /tmp and enable debug
+		if logPath != "/tmp/agent.log" {
+			debug = true
+			oldPath := logPath
+			logPath = "/tmp/agent.log"
+
+			// Get system info for debugging
+			uid := os.Getuid()
+			gid := os.Getgid()
+			username := "unknown"
+			if u, err := user.Current(); err == nil {
+				username = u.Username
+			}
+			sysInfo := fmt.Sprintf("UID=%d, GID=%d, USER=%s, HOME=%s, SCION_HOST_UID=%s, SCION_HOST_GID=%s",
+				uid, gid, username, os.Getenv("HOME"), os.Getenv("SCION_HOST_UID"), os.Getenv("SCION_HOST_GID"))
+
+			fallbackMsg := fmt.Sprintf("[sciontool] WARNING: Failed to write to %s: %v. Falling back to /tmp/agent.log and enabling debug mode. %s\n", oldPath, err, sysInfo)
+			fmt.Fprint(os.Stderr, fallbackMsg)
+
+			// Retry with new path
+			f, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				// Total failure
+				return
+			}
+			// Write the fallback message to the new log file too
+			f.WriteString(timestamp + " " + fallbackMsg)
+		} else {
+			// Already at /tmp/agent.log and it failed
+			return
+		}
 	}
 	defer f.Close()
 

@@ -310,6 +310,17 @@ func TestBuildCommonRunArgs(t *testing.T) {
 				"-v /host/project:/workspace",
 			},
 		},
+		{
+			name: "host uid and gid",
+			config: RunConfig{
+				Harness: &harness.GeminiCLI{},
+				Image:   "scion-agent:latest",
+			},
+			wantIn: []string{
+				"-e SCION_HOST_UID=",
+				"-e SCION_HOST_GID=",
+			},
+		},
 	}
 
 		for _, tt := range tests {

@@ -10,7 +10,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/harness"
 )
 
-func TestDockerRuntime_Run_UserFlag(t *testing.T) {
+func TestDockerRuntime_Run_NoUserFlag(t *testing.T) {
 	// We'll use a wrapper that just echo its arguments so we can inspect them
 	// but we need it to look like a successful command execution.
 	
@@ -42,8 +42,8 @@ echo "$@"
 		t.Fatalf("runtime.Run failed: %v", err)
 	}
 
-	if !strings.Contains(out, "--user scion:scion") {
-		t.Errorf("expected '--user scion:scion' in output, got %q", out)
+	if strings.Contains(out, "--user scion:scion") {
+		t.Errorf("expected '--user scion:scion' to be absent in output, got %q", out)
 	}
 	
 	if !strings.Contains(out, "run --init -t") {
