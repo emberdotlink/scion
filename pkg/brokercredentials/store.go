@@ -1,6 +1,6 @@
 // Package hostcredentials manages Runtime Host credentials for Hub authentication.
 // This package is separate from pkg/credentials which handles CLI user credentials.
-package hostcredentials
+package brokercredentials
 
 import (
 	"encoding/base64"

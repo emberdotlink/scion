@@ -1,4 +1,4 @@
-package hostcredentials
+package brokercredentials
 
 import (
 	"encoding/base64"

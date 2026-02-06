@@ -1,4 +1,4 @@
-package hostclient
+package brokerclient
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"net/url"
 
 	"github.com/ptone/scion-agent/pkg/apiclient"
-	"github.com/ptone/scion-agent/pkg/runtimehost"
+	"github.com/ptone/scion-agent/pkg/runtimebroker"
 )
 
 // AgentService handles agent operations on a runtime host.

@@ -1,5 +1,5 @@
 // Package runtimehost provides the Scion Runtime Host API server.
-package runtimehost
+package runtimebroker
 
 import (
 	"context"

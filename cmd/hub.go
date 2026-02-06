@@ -11,7 +11,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/apiclient"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/credentials"
-	"github.com/ptone/scion-agent/pkg/hostcredentials"
+	"github.com/ptone/scion-agent/pkg/brokercredentials"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/util"
 	"github.com/ptone/scion-agent/pkg/version"

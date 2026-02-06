@@ -21,7 +21,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/harness"
 	"github.com/ptone/scion-agent/pkg/hub"
 	"github.com/ptone/scion-agent/pkg/runtime"
-	"github.com/ptone/scion-agent/pkg/runtimehost"
+	"github.com/ptone/scion-agent/pkg/runtimebroker"
 	"github.com/ptone/scion-agent/pkg/storage"
 	"github.com/ptone/scion-agent/pkg/store"
 	"github.com/ptone/scion-agent/pkg/store/sqlite"

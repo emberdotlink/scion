@@ -1,5 +1,5 @@
 // Package hostclient provides a Go client for the Scion Runtime Host API.
-package hostclient
+package brokerclient
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/apiclient"
-	"github.com/ptone/scion-agent/pkg/runtimehost"
+	"github.com/ptone/scion-agent/pkg/runtimebroker"
 )
 
 // Client is the interface for the Runtime Host API client.

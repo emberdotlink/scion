@@ -1,7 +1,7 @@
 // Package runtimehost provides the Scion Runtime Host API server.
 // The Runtime Host API exposes agent lifecycle management over HTTP,
 // allowing the Scion Hub to remotely manage agents on this compute node.
-package runtimehost
+package runtimebroker
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/config"
-	"github.com/ptone/scion-agent/pkg/hostcredentials"
+	"github.com/ptone/scion-agent/pkg/brokercredentials"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/ptone/scion-agent/pkg/templatecache"
