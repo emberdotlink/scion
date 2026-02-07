@@ -261,7 +261,7 @@ func getHubClient(settings *config.Settings) (hubclient.Client, error) {
 
 func runHubStatus(cmd *cobra.Command, args []string) error {
 	// Resolve grove path to find project settings
-	resolvedPath, _, err := config.ResolveGrovePath(grovePath)
+	resolvedPath, isGlobal, err := config.ResolveGrovePath(grovePath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve grove path: %w", err)
 	}
@@ -320,6 +320,10 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 					status["connected"] = true
 					status["hubVersion"] = health.Version
 					status["hubStatus"] = health.Status
+
+					// Add grove context to JSON output
+					groveContext := getGroveContextJSON(client, resolvedPath, isGlobal, settings)
+					status["groveContext"] = groveContext
 				} else {
 					status["connected"] = false
 					status["error"] = err.Error()
@@ -405,10 +409,197 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 					fmt.Println("Run 'scion hub auth login' to re-authenticate.")
 				}
 			}
+
+			// Show grove context if we're in a grove
+			printGroveContext(client, resolvedPath, isGlobal, settings)
 		}
 	}
 
 	return nil
+}
+
+// printGroveContext prints information about the current grove's registration and available brokers.
+func printGroveContext(client hubclient.Client, grovePath string, isGlobal bool, settings *config.Settings) {
+	// Determine grove name from path
+	groveName := filepath.Base(filepath.Dir(grovePath))
+	if isGlobal {
+		groveName = "global"
+	}
+
+	fmt.Println()
+	fmt.Println("Grove Context")
+	fmt.Println("-------------")
+	fmt.Printf("Grove:      %s\n", groveName)
+	if isGlobal {
+		fmt.Printf("Type:       global\n")
+	} else {
+		fmt.Printf("Type:       project\n")
+	}
+
+	// Get git remote for this grove (if not global)
+	var gitRemote string
+	if !isGlobal {
+		gitRemote = util.GetGitRemoteDir(filepath.Dir(grovePath))
+		if gitRemote != "" {
+			fmt.Printf("Git Remote: %s\n", gitRemote)
+		}
+	}
+
+	// Check if grove is registered on the Hub
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var registeredGrove *hubclient.Grove
+
+	// First try to find by grove_id if we have one
+	if settings.GroveID != "" {
+		grove, err := client.Groves().Get(ctx, settings.GroveID)
+		if err == nil {
+			registeredGrove = grove
+		}
+	}
+
+	// If not found by ID and we have a git remote, try by git remote
+	if registeredGrove == nil && gitRemote != "" {
+		resp, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+			GitRemote: util.NormalizeGitRemote(gitRemote),
+		})
+		if err == nil && len(resp.Groves) > 0 {
+			registeredGrove = &resp.Groves[0]
+		}
+	}
+
+	// If still not found and global, try by name
+	if registeredGrove == nil && isGlobal {
+		resp, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+			Name: "global",
+		})
+		if err == nil && len(resp.Groves) > 0 {
+			registeredGrove = &resp.Groves[0]
+		}
+	}
+
+	if registeredGrove == nil {
+		fmt.Printf("Registered: no\n")
+		fmt.Println()
+		fmt.Println("Run 'scion hub register' to register this grove with the Hub.")
+		return
+	}
+
+	fmt.Printf("Registered: yes\n")
+	fmt.Printf("Hub Grove:  %s (ID: %s)\n", registeredGrove.Name, registeredGrove.ID)
+
+	// Get runtime brokers for this grove
+	brokersResp, err := client.RuntimeBrokers().List(ctx, &hubclient.ListBrokersOptions{
+		GroveID: registeredGrove.ID,
+	})
+	if err != nil {
+		fmt.Printf("Brokers:    (error fetching: %s)\n", err)
+		return
+	}
+
+	if len(brokersResp.Brokers) == 0 {
+		fmt.Printf("Brokers:    none\n")
+		return
+	}
+
+	fmt.Printf("Brokers:    %d available\n", len(brokersResp.Brokers))
+	for _, broker := range brokersResp.Brokers {
+		statusIndicator := ""
+		if broker.Status == "online" {
+			statusIndicator = "[online]"
+		} else {
+			statusIndicator = fmt.Sprintf("[%s]", broker.Status)
+		}
+		fmt.Printf("  - %s %s\n", broker.Name, statusIndicator)
+	}
+}
+
+// getGroveContextJSON returns grove context information for JSON output.
+func getGroveContextJSON(client hubclient.Client, grovePath string, isGlobal bool, settings *config.Settings) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	// Determine grove name from path
+	groveName := filepath.Base(filepath.Dir(grovePath))
+	if isGlobal {
+		groveName = "global"
+	}
+
+	result["name"] = groveName
+	result["isGlobal"] = isGlobal
+
+	// Get git remote for this grove (if not global)
+	var gitRemote string
+	if !isGlobal {
+		gitRemote = util.GetGitRemoteDir(filepath.Dir(grovePath))
+		if gitRemote != "" {
+			result["gitRemote"] = gitRemote
+		}
+	}
+
+	// Check if grove is registered on the Hub
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var registeredGrove *hubclient.Grove
+
+	// First try to find by grove_id if we have one
+	if settings.GroveID != "" {
+		grove, err := client.Groves().Get(ctx, settings.GroveID)
+		if err == nil {
+			registeredGrove = grove
+		}
+	}
+
+	// If not found by ID and we have a git remote, try by git remote
+	if registeredGrove == nil && gitRemote != "" {
+		resp, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+			GitRemote: util.NormalizeGitRemote(gitRemote),
+		})
+		if err == nil && len(resp.Groves) > 0 {
+			registeredGrove = &resp.Groves[0]
+		}
+	}
+
+	// If still not found and global, try by name
+	if registeredGrove == nil && isGlobal {
+		resp, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+			Name: "global",
+		})
+		if err == nil && len(resp.Groves) > 0 {
+			registeredGrove = &resp.Groves[0]
+		}
+	}
+
+	if registeredGrove == nil {
+		result["registered"] = false
+		return result
+	}
+
+	result["registered"] = true
+	result["hubGroveId"] = registeredGrove.ID
+	result["hubGroveName"] = registeredGrove.Name
+
+	// Get runtime brokers for this grove
+	brokersResp, err := client.RuntimeBrokers().List(ctx, &hubclient.ListBrokersOptions{
+		GroveID: registeredGrove.ID,
+	})
+	if err != nil {
+		result["brokersError"] = err.Error()
+		return result
+	}
+
+	brokers := make([]map[string]interface{}, 0, len(brokersResp.Brokers))
+	for _, broker := range brokersResp.Brokers {
+		brokers = append(brokers, map[string]interface{}{
+			"id":     broker.ID,
+			"name":   broker.Name,
+			"status": broker.Status,
+		})
+	}
+	result["brokers"] = brokers
+
+	return result
 }
 
 func runHubRegister(cmd *cobra.Command, args []string) error {
