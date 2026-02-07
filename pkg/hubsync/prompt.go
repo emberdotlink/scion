@@ -174,9 +174,9 @@ func ShowBrokerRegistrationPrompt(endpoint string, autoConfirm bool) bool {
 	fmt.Printf("Hub endpoint: %s\n", endpoint)
 	fmt.Println()
 	fmt.Println("The broker will be able to:")
-	fmt.Println("  - Execute agents on behalf of the Hub")
-	fmt.Println("  - Receive commands via the control channel")
-	fmt.Println("  - Report agent status via heartbeats")
+	fmt.Println("  - Execute agents on behalf of authorized Hub users")
+	fmt.Println("  - Open long lived control channel to receive Hub commands")
+	fmt.Println("  - Update agent lifecycle status on the Hub")
 	fmt.Println()
 	return ConfirmAction("Continue with broker registration?", true, autoConfirm)
 }
