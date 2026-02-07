@@ -45,6 +45,7 @@ type runtimeBrokerService struct {
 type ListBrokersOptions struct {
 	Status  string // Filter by status (online, offline)
 	GroveID string // Filter by grove contribution
+	Name    string // Exact match on broker name (case-insensitive)
 	Page    apiclient.PageOptions
 }
 
@@ -144,6 +145,9 @@ func (s *runtimeBrokerService) List(ctx context.Context, opts *ListBrokersOption
 		}
 		if opts.GroveID != "" {
 			query.Set("groveId", opts.GroveID)
+		}
+		if opts.Name != "" {
+			query.Set("name", opts.Name)
 		}
 		opts.Page.ToQuery(query)
 	}

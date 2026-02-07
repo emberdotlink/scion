@@ -1042,6 +1042,83 @@ func TestRuntimeBrokerList(t *testing.T) {
 	}
 }
 
+func TestRuntimeBrokerListByName(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create two brokers with different names
+	broker1 := &store.RuntimeBroker{
+		ID:            "host_name_test1",
+		Name:          "Alpha Host",
+		Slug:          "alpha-host",
+		Status:        store.BrokerStatusOnline,
+		LastHeartbeat: time.Now(),
+		Created:       time.Now(),
+		Updated:       time.Now(),
+	}
+	broker2 := &store.RuntimeBroker{
+		ID:            "host_name_test2",
+		Name:          "Beta Host",
+		Slug:          "beta-host",
+		Status:        store.BrokerStatusOnline,
+		LastHeartbeat: time.Now(),
+		Created:       time.Now(),
+		Updated:       time.Now(),
+	}
+	if err := s.CreateRuntimeBroker(ctx, broker1); err != nil {
+		t.Fatalf("failed to create runtime broker 1: %v", err)
+	}
+	if err := s.CreateRuntimeBroker(ctx, broker2); err != nil {
+		t.Fatalf("failed to create runtime broker 2: %v", err)
+	}
+
+	// Test filter by exact name
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/runtime-brokers?name=Alpha+Host", nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp ListRuntimeBrokersResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Brokers) != 1 {
+		t.Errorf("expected 1 broker, got %d", len(resp.Brokers))
+	}
+	if len(resp.Brokers) > 0 && resp.Brokers[0].Name != "Alpha Host" {
+		t.Errorf("expected broker name 'Alpha Host', got %q", resp.Brokers[0].Name)
+	}
+
+	// Test case-insensitive filter
+	rec = doRequest(t, srv, http.MethodGet, "/api/v1/runtime-brokers?name=beta+host", nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Brokers) != 1 {
+		t.Errorf("expected 1 broker, got %d", len(resp.Brokers))
+	}
+
+	// Test no match
+	rec = doRequest(t, srv, http.MethodGet, "/api/v1/runtime-brokers?name=nonexistent", nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Brokers) != 0 {
+		t.Errorf("expected 0 brokers, got %d", len(resp.Brokers))
+	}
+}
+
 func TestRuntimeBrokerGetByID(t *testing.T) {
 	srv, s := testServer(t)
 	ctx := context.Background()

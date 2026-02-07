@@ -1647,6 +1647,7 @@ func (s *Server) listRuntimeBrokers(w http.ResponseWriter, r *http.Request) {
 	filter := store.RuntimeBrokerFilter{
 		Status:  query.Get("status"),
 		GroveID: groveID,
+		Name:    query.Get("name"),
 	}
 
 	limit := 50

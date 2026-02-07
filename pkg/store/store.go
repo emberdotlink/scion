@@ -191,6 +191,7 @@ type RuntimeBrokerStore interface {
 type RuntimeBrokerFilter struct {
 	Status  string
 	GroveID string
+	Name    string // Exact match on broker name (case-insensitive)
 }
 
 // TemplateStore defines template persistence operations.

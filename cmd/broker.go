@@ -246,9 +246,9 @@ func init() {
 
 	// Provide/withdraw flags
 	brokerProvideCmd.Flags().StringVar(&brokerGroveID, "grove", "", "Grove ID to add as provider for")
-	brokerProvideCmd.Flags().StringVar(&brokerBrokerID, "broker", "", "Broker ID to use (for remote broker operations)")
+	brokerProvideCmd.Flags().StringVar(&brokerBrokerID, "broker", "", "Broker name or ID to use (for remote broker operations)")
 	brokerWithdrawCmd.Flags().StringVar(&brokerGroveID, "grove", "", "Grove ID to remove as provider from")
-	brokerWithdrawCmd.Flags().StringVar(&brokerBrokerID, "broker", "", "Broker ID to use (for remote broker operations)")
+	brokerWithdrawCmd.Flags().StringVar(&brokerBrokerID, "broker", "", "Broker name or ID to use (for remote broker operations)")
 }
 
 func runBrokerRegister(cmd *cobra.Command, args []string) error {
@@ -679,7 +679,7 @@ func runBrokerProvide(cmd *cobra.Command, args []string) error {
 		}
 
 		if brokerID == "" {
-			return fmt.Errorf("no broker registration found.\n\nRegister with: scion broker register\nOr specify a broker with --broker <id>")
+			return fmt.Errorf("no broker registration found.\n\nRegister with: scion broker register\nOr specify a broker with --broker <name-or-id>")
 		}
 
 		// Get broker name for display
@@ -754,12 +754,13 @@ func runBrokerProvide(cmd *cobra.Command, args []string) error {
 		groveName = grove.Name
 	}
 
-	// If we used --broker flag, fetch broker details from Hub
+	// If we used --broker flag, resolve broker by name or ID
 	if isRemoteBroker {
-		broker, err := client.RuntimeBrokers().Get(ctx, brokerID)
+		broker, err := resolveBrokerByNameOrID(ctx, client, brokerBrokerID)
 		if err != nil {
-			return fmt.Errorf("failed to fetch broker '%s': %w", brokerID, err)
+			return fmt.Errorf("failed to find broker '%s': %w", brokerBrokerID, err)
 		}
+		brokerID = broker.ID
 		brokerName = broker.Name
 		if brokerName == "" {
 			brokerName = brokerID[:8]
@@ -815,7 +816,7 @@ func runBrokerWithdraw(cmd *cobra.Command, args []string) error {
 		}
 
 		if brokerID == "" {
-			return fmt.Errorf("no broker registration found.\n\nRegister with: scion broker register\nOr specify a broker with --broker <id>")
+			return fmt.Errorf("no broker registration found.\n\nRegister with: scion broker register\nOr specify a broker with --broker <name-or-id>")
 		}
 
 		// Get broker name for display
@@ -890,12 +891,13 @@ func runBrokerWithdraw(cmd *cobra.Command, args []string) error {
 		groveName = grove.Name
 	}
 
-	// If we used --broker flag, fetch broker details from Hub
+	// If we used --broker flag, resolve broker by name or ID
 	if isRemoteBroker {
-		broker, err := client.RuntimeBrokers().Get(ctx, brokerID)
+		broker, err := resolveBrokerByNameOrID(ctx, client, brokerBrokerID)
 		if err != nil {
-			return fmt.Errorf("failed to fetch broker '%s': %w", brokerID, err)
+			return fmt.Errorf("failed to find broker '%s': %w", brokerBrokerID, err)
 		}
+		brokerID = broker.ID
 		brokerName = broker.Name
 		if brokerName == "" {
 			brokerName = brokerID[:8]
@@ -1127,4 +1129,37 @@ type brokerStatusInfo struct {
 type brokerGroveStatus struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// resolveBrokerByNameOrID resolves a broker identifier (name or ID) to a broker.
+// It first attempts to fetch by ID, and if that fails with a 404, tries to find by name.
+// Returns the broker if found, or an error if not found or multiple matches.
+func resolveBrokerByNameOrID(ctx context.Context, client hubclient.Client, nameOrID string) (*hubclient.RuntimeBroker, error) {
+	// First try to fetch by ID directly
+	broker, err := client.RuntimeBrokers().Get(ctx, nameOrID)
+	if err == nil {
+		return broker, nil
+	}
+
+	// If not a 404, return the error
+	if !apiclient.IsNotFoundError(err) {
+		return nil, err
+	}
+
+	// ID not found, try to find by name
+	resp, err := client.RuntimeBrokers().List(ctx, &hubclient.ListBrokersOptions{
+		Name: nameOrID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for broker by name: %w", err)
+	}
+
+	switch len(resp.Brokers) {
+	case 0:
+		return nil, fmt.Errorf("broker '%s' not found", nameOrID)
+	case 1:
+		return &resp.Brokers[0], nil
+	default:
+		return nil, fmt.Errorf("multiple brokers found with name '%s' - please use the broker ID instead", nameOrID)
+	}
 }

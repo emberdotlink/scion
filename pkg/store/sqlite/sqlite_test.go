@@ -464,6 +464,23 @@ func TestRuntimeBrokerList(t *testing.T) {
 	result, err = s.ListRuntimeBrokers(ctx, store.RuntimeBrokerFilter{Status: store.BrokerStatusOffline}, store.ListOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.TotalCount)
+
+	// List by name (exact match, case-insensitive)
+	result, err = s.ListRuntimeBrokers(ctx, store.RuntimeBrokerFilter{Name: "Host A"}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.TotalCount)
+	assert.Equal(t, "Host A", result.Items[0].Name)
+
+	// List by name (case-insensitive)
+	result, err = s.ListRuntimeBrokers(ctx, store.RuntimeBrokerFilter{Name: "host b"}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.TotalCount)
+	assert.Equal(t, "Host B", result.Items[0].Name)
+
+	// List by name (no match)
+	result, err = s.ListRuntimeBrokers(ctx, store.RuntimeBrokerFilter{Name: "nonexistent"}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.TotalCount)
 }
 
 // ============================================================================

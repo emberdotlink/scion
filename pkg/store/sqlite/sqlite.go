@@ -1194,6 +1194,10 @@ func (s *SQLiteStore) ListRuntimeBrokers(ctx context.Context, filter store.Runti
 		conditions = append(conditions, "id IN (SELECT broker_id FROM grove_contributors WHERE grove_id = ?)")
 		args = append(args, filter.GroveID)
 	}
+	if filter.Name != "" {
+		conditions = append(conditions, "LOWER(name) = LOWER(?)")
+		args = append(args, filter.Name)
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
