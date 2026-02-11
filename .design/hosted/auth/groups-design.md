@@ -1073,10 +1073,10 @@ All principal and group operations are logged:
 - [x] Add grove group to effective group expansion
 
 ### Phase 4: Principal Resolution
-- [ ] Implement `GetEffectiveGroups` for users (transitive group expansion)
+- [x] Implement `GetEffectiveGroups` for users (transitive group expansion)
 - [x] Implement `GetEffectiveGroupsForAgent` (grove group + explicit groups + transitive expansion)
-- [ ] Implement delegation resolution (`checkDelegatedAccess`)
-- [ ] Add principal query endpoints (`/users/me/groups`, `/agents/{id}/groups`, `/principals/{type}/{id}`)
+- [x] Implement delegation resolution (`CheckDelegatedAccess`)
+- [x] Add principal query endpoints (`/users/me/groups`, `/agents/{id}/groups`, `/principals/{type}/{id}`)
 
 ### Phase 5: Integration with Permissions System
 - [ ] Wire principal resolution into the policy evaluation algorithm from `permissions-design.md`
