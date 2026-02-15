@@ -18,9 +18,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/config"
+	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -52,6 +54,28 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 			message = strings.Join(args[1:], " ")
 		}
 
+		// Check if Hub should be used
+		var hubCtx *HubContext
+		var err error
+		if msgAll {
+			// Cross-grove operation: skip sync
+			hubCtx, err = CheckHubAvailabilityWithOptions(grovePath, true)
+		} else if msgBroadcast {
+			// Grove-scoped broadcast: no specific agent
+			hubCtx, err = CheckHubAvailability(grovePath)
+		} else {
+			// Single agent: exclude target from sync requirements
+			hubCtx, err = CheckHubAvailabilityForAgent(grovePath, agentName, false)
+		}
+		if err != nil {
+			return err
+		}
+
+		if hubCtx != nil {
+			return sendMessageViaHub(hubCtx, agentName, message, msgInterrupt, msgBroadcast, msgAll)
+		}
+
+		// Local mode
 		ctx := context.Background()
 
 		effectiveProfile := profile
@@ -111,6 +135,76 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 
 		return nil
 	},
+}
+
+func sendMessageViaHub(hubCtx *HubContext, agentName string, message string, interrupt bool, broadcast bool, all bool) error {
+	if !isJSONOutput() {
+		PrintUsingHub(hubCtx.Endpoint)
+	}
+
+	// Resolve the agent service once: grove-scoped or global depending on mode.
+	var agentSvc hubclient.AgentService
+	if all {
+		agentSvc = hubCtx.Client.Agents()
+	} else {
+		groveID, err := GetGroveID(hubCtx)
+		if err != nil {
+			return wrapHubError(err)
+		}
+		agentSvc = hubCtx.Client.GroveAgents(groveID)
+	}
+
+	var targets []string
+
+	if broadcast || all {
+		// List running agents from Hub
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		opts := &hubclient.ListAgentsOptions{
+			Status: "running",
+		}
+
+		resp, err := agentSvc.List(ctx, opts)
+		if err != nil {
+			return wrapHubError(fmt.Errorf("failed to list agents via Hub: %w", err))
+		}
+
+		for _, a := range resp.Agents {
+			targets = append(targets, a.Name)
+		}
+
+		if len(targets) == 0 {
+			fmt.Println("No running agents found to broadcast to.")
+			return nil
+		}
+	} else {
+		targets = []string{agentName}
+	}
+
+	for _, target := range targets {
+		if !isJSONOutput() {
+			fmt.Printf("Sending message to agent '%s'...\n", target)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+		if err := agentSvc.SendMessage(ctx, target, message, interrupt); err != nil {
+			cancel()
+			if broadcast || all {
+				fmt.Printf("Warning: failed to send message to agent '%s' via Hub: %s\n", target, err)
+				continue
+			}
+			return wrapHubError(fmt.Errorf("failed to send message to agent '%s' via Hub: %w", target, err))
+		}
+		cancel()
+
+		if !isJSONOutput() {
+			fmt.Printf("Message sent to agent '%s' via Hub.\n", target)
+		}
+	}
+
+	return nil
 }
 
 func init() {
