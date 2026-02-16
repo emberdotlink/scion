@@ -145,6 +145,68 @@ func TestGitUtils(t *testing.T) {
 		_, _ = RemoveWorktree(prunePath, true)
 	})
 
+	t.Run("PruneWorktreesIn", func(t *testing.T) {
+		prunePath := filepath.Join(repoDir, "prune-in-test")
+		pruneBranch := "prune-in-branch"
+		if err := CreateWorktree(prunePath, pruneBranch); err != nil {
+			t.Fatalf("CreateWorktree failed: %v", err)
+		}
+		// Manually remove directory to simulate stale worktree
+		if err := os.RemoveAll(prunePath); err != nil {
+			t.Fatalf("Failed to remove prune path: %v", err)
+		}
+
+		// PruneWorktreesIn should work even when CWD is outside the repo
+		outsideDir := t.TempDir()
+		prevWd, _ := os.Getwd()
+		os.Chdir(outsideDir)
+		defer os.Chdir(prevWd)
+
+		if err := PruneWorktreesIn(repoDir); err != nil {
+			t.Fatalf("PruneWorktreesIn failed: %v", err)
+		}
+
+		// Verify we can create the worktree again (prune cleared the stale record)
+		os.Chdir(prevWd)
+		if err := CreateWorktree(prunePath, pruneBranch); err != nil {
+			t.Errorf("Failed to recreate worktree after PruneWorktreesIn: %v", err)
+		}
+		// Clean up
+		_, _ = RemoveWorktree(prunePath, true)
+	})
+
+	t.Run("DeleteBranchIn", func(t *testing.T) {
+		// Create a branch via worktree, then remove the worktree without deleting the branch
+		wtPath := filepath.Join(repoDir, "branch-del-test")
+		branch := "delete-me-branch"
+		if err := CreateWorktree(wtPath, branch); err != nil {
+			t.Fatalf("CreateWorktree failed: %v", err)
+		}
+		if _, err := RemoveWorktree(wtPath, false); err != nil {
+			t.Fatalf("RemoveWorktree failed: %v", err)
+		}
+
+		// Branch should still exist
+		if !BranchExists(branch) {
+			t.Fatal("expected branch to still exist after RemoveWorktree(deleteBranch=false)")
+		}
+
+		// DeleteBranchIn should remove it
+		if !DeleteBranchIn(repoDir, branch) {
+			t.Error("DeleteBranchIn returned false, expected true")
+		}
+
+		// Branch should be gone
+		if BranchExists(branch) {
+			t.Error("expected branch to be deleted after DeleteBranchIn")
+		}
+
+		// Deleting a non-existent branch should return false
+		if DeleteBranchIn(repoDir, "no-such-branch") {
+			t.Error("DeleteBranchIn returned true for non-existent branch")
+		}
+	})
+
 	t.Run("FindWorktreeByBranch", func(t *testing.T) {
 		wtPath := filepath.Join(repoDir, "wt-find")
 		branch := "find-branch"

@@ -242,9 +242,23 @@ func RemoveWorktree(path string, deleteBranch bool) (bool, error) {
 }
 
 // PruneWorktrees prunes worktree information for worktrees that no longer exist.
+// It runs from the current working directory.
 func PruneWorktrees() error {
 	cmd := exec.Command("git", "worktree", "prune")
 	return cmd.Run()
+}
+
+// PruneWorktreesIn prunes worktree information from the specified repository root.
+func PruneWorktreesIn(repoRoot string) error {
+	cmd := exec.Command("git", "-C", repoRoot, "worktree", "prune")
+	return cmd.Run()
+}
+
+// DeleteBranchIn deletes a git branch from the specified repository root.
+// Returns true if the branch was deleted, false otherwise.
+func DeleteBranchIn(repoRoot, branchName string) bool {
+	cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", branchName)
+	return cmd.Run() == nil
 }
 
 // FindWorktreeByBranch returns the absolute path of the worktree checked out to the specified branch.

@@ -34,8 +34,13 @@ import (
 func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) (bool, error) {
 	var agentsDirs []string
 	branchDeleted := false
+	var repoRoot string
 	if projectDir, err := config.GetResolvedProjectDir(grovePath); err == nil {
 		agentsDirs = append(agentsDirs, filepath.Join(projectDir, "agents"))
+		// Determine repo root for worktree pruning and branch cleanup
+		if root, err := util.RepoRootDir(filepath.Dir(projectDir)); err == nil {
+			repoRoot = root
+		}
 	}
 	// Also check global just in case
 	if globalDir, err := config.GetGlobalAgentsDir(); err == nil {
@@ -76,6 +81,25 @@ func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) (bo
 		}
 		util.Debugf("delete: RemoveAll completed in %v", time.Since(removeStart))
 	}
+
+	// Prune stale worktree records from the repo. This handles cases where the
+	// workspace directory was removed (e.g. by os.RemoveAll above, or a previous
+	// incomplete cleanup) but the git worktree record was not properly unregistered.
+	if repoRoot != "" {
+		util.Debugf("delete: pruning stale worktrees in %s", repoRoot)
+		_ = util.PruneWorktreesIn(repoRoot)
+
+		// If the branch wasn't already deleted via RemoveWorktree (e.g. because
+		// the workspace .git file didn't exist), try to delete it by name.
+		if removeBranch && !branchDeleted {
+			branchName := api.Slugify(agentName)
+			if util.DeleteBranchIn(repoRoot, branchName) {
+				branchDeleted = true
+				util.Debugf("delete: deleted branch %s via fallback", branchName)
+			}
+		}
+	}
+
 	return branchDeleted, nil
 }
 
@@ -205,8 +229,14 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		// Remove existing workspace dir if it exists to allow worktree add
 		_ = util.MakeWritableRecursive(agentWorkspace)
 		os.RemoveAll(agentWorkspace)
-		// Prune worktrees to clean up any stale entries
-		_ = util.PruneWorktrees()
+		// Prune worktrees to clean up any stale entries.
+		// Use repo-root-aware prune so it works when the process CWD is
+		// outside the repository (e.g. runtime broker).
+		if root, err := util.RepoRootDir(filepath.Dir(agentWorkspace)); err == nil {
+			_ = util.PruneWorktreesIn(root)
+		} else {
+			_ = util.PruneWorktrees()
+		}
 
 		worktreeBranch := branch
 		if worktreeBranch == "" {
