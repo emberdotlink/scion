@@ -75,7 +75,7 @@ export class ScionPageTerminal extends LitElement {
       display: flex;
       flex-direction: column;
       height: 100vh;
-      background: #1a1a2e;
+      background: #1a1a1a;
       color: #eaeaea;
       overflow: hidden;
     }
@@ -85,8 +85,8 @@ export class ScionPageTerminal extends LitElement {
       align-items: center;
       gap: 0.75rem;
       padding: 0.5rem 1rem;
-      background: #16213e;
-      border-bottom: 1px solid #0f3460;
+      background: #141414;
+      border-bottom: 1px solid #2a2a2a;
       flex-shrink: 0;
       min-height: 40px;
     }
@@ -108,7 +108,7 @@ export class ScionPageTerminal extends LitElement {
     .separator {
       width: 1px;
       height: 20px;
-      background: #0f3460;
+      background: #2a2a2a;
     }
 
     .agent-name {
@@ -145,7 +145,7 @@ export class ScionPageTerminal extends LitElement {
 
     .reconnect-btn {
       background: transparent;
-      border: 1px solid #0f3460;
+      border: 1px solid #2a2a2a;
       color: #94a3b8;
       padding: 0.25rem 0.75rem;
       border-radius: 4px;
@@ -183,7 +183,7 @@ export class ScionPageTerminal extends LitElement {
     .spinner {
       width: 32px;
       height: 32px;
-      border: 3px solid #0f3460;
+      border: 3px solid #2a2a2a;
       border-top-color: #60a5fa;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
@@ -290,12 +290,12 @@ export class ScionPageTerminal extends LitElement {
 
     this.terminal = new Terminal({
       theme: {
-        background: '#1a1a2e',
+        background: '#1a1a1a',
         foreground: '#eaeaea',
         cursor: '#f39c12',
-        cursorAccent: '#1a1a2e',
+        cursorAccent: '#1a1a1a',
         selectionBackground: 'rgba(255, 255, 255, 0.3)',
-        black: '#1a1a2e',
+        black: '#1a1a1a',
         red: '#e74c3c',
         green: '#2ecc71',
         yellow: '#f39c12',
