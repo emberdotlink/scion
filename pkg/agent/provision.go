@@ -48,6 +48,9 @@ func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) (bo
 	}
 
 	for _, dir := range agentsDirs {
+		// Clean up tombstones from previous async deletions.
+		util.CleanupPendingDeletions(dir)
+
 		agentDir := filepath.Join(dir, agentName)
 		if _, err := os.Stat(agentDir); err != nil {
 			continue
@@ -75,11 +78,11 @@ func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) (bo
 
 		util.Debugf("delete: removing directory: %s", agentDir)
 		removeStart := time.Now()
-		if err := os.RemoveAll(agentDir); err != nil {
-			util.Debugf("delete: RemoveAll failed in %v: %v", time.Since(removeStart), err)
+		if err := util.RemoveAllAsync(agentDir); err != nil {
+			util.Debugf("delete: removal failed in %v: %v", time.Since(removeStart), err)
 			return branchDeleted, fmt.Errorf("failed to remove agent directory: %w", err)
 		}
-		util.Debugf("delete: RemoveAll completed in %v", time.Since(removeStart))
+		util.Debugf("delete: removal initiated in %v", time.Since(removeStart))
 	}
 
 	// Prune stale worktree records from the repo. This handles cases where the

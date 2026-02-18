@@ -15,8 +15,12 @@
 package util
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // CopyDir recursively copies a directory tree, attempting to preserve permissions.
@@ -82,4 +86,54 @@ func MakeWritableRecursive(path string) error {
 	})
 	Debugf("MakeWritableRecursive: walked %d files, chmod'd %d", totalFiles, chmodCount)
 	return err
+}
+
+// RemoveAllAsync removes a directory tree without blocking the caller.
+// It renames the directory to a unique tombstone name (an instant metadata
+// operation), then spawns a background "rm -rf" process to handle the actual
+// deletion. This avoids blocking on slow-to-delete files such as symlinks
+// pointing to container-internal paths (e.g. /home/scion/...) which can
+// trigger macOS autofs timeouts during unlink.
+func RemoveAllAsync(path string) error {
+	tombstone := fmt.Sprintf("%s.deleting-%d", path, time.Now().UnixNano())
+	if err := os.Rename(path, tombstone); err != nil {
+		Debugf("RemoveAllAsync: rename failed, falling back to sync removal: %v", err)
+		return os.RemoveAll(path)
+	}
+
+	Debugf("RemoveAllAsync: renamed %s -> %s", filepath.Base(path), filepath.Base(tombstone))
+
+	cmd := exec.Command("rm", "-rf", tombstone)
+	if err := cmd.Start(); err != nil {
+		Debugf("RemoveAllAsync: background rm failed to start, falling back to sync: %v", err)
+		return os.RemoveAll(tombstone)
+	}
+
+	// Reap the child process to prevent zombies if we outlive it.
+	go cmd.Wait()
+
+	Debugf("RemoveAllAsync: background rm started (pid %d)", cmd.Process.Pid)
+	return nil
+}
+
+// CleanupPendingDeletions removes leftover tombstone directories in dir
+// from previous async deletions that may not have completed.
+func CleanupPendingDeletions(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !strings.Contains(e.Name(), ".deleting-") {
+			continue
+		}
+		tombstone := filepath.Join(dir, e.Name())
+		Debugf("CleanupPendingDeletions: removing leftover %s", e.Name())
+		cmd := exec.Command("rm", "-rf", tombstone)
+		if err := cmd.Start(); err != nil {
+			go os.RemoveAll(tombstone)
+		} else {
+			go cmd.Wait()
+		}
+	}
 }
