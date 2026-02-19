@@ -427,31 +427,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Populate GitClone config for git-anchored groves.
-	if grove.GitRemote != "" && agent.AppliedConfig != nil {
-		cloneURL := grove.Labels["scion.dev/clone-url"]
-		if cloneURL == "" {
-			cloneURL = "https://" + grove.GitRemote + ".git"
-		}
-		defaultBranch := grove.Labels["scion.dev/default-branch"]
-		if defaultBranch == "" {
-			defaultBranch = "main"
-		}
-		agent.AppliedConfig.GitClone = &api.GitCloneConfig{
-			URL:    cloneURL,
-			Branch: defaultBranch,
-			Depth:  1,
-		}
-	}
-
-	// Populate template ID, hash, and hub access scopes if template was resolved
-	if resolvedTemplate != nil && agent.AppliedConfig != nil {
-		agent.AppliedConfig.TemplateID = resolvedTemplate.ID
-		agent.AppliedConfig.TemplateHash = resolvedTemplate.ContentHash
-		if resolvedTemplate.Config != nil && resolvedTemplate.Config.HubAccess != nil {
-			agent.AppliedConfig.HubAccessScopes = resolvedTemplate.Config.HubAccess.Scopes
-		}
-	}
+	s.populateAgentConfig(agent, grove, resolvedTemplate)
 
 	if err := s.store.CreateAgent(ctx, agent); err != nil {
 		writeErrorFromErr(w, err, "")
@@ -1863,11 +1839,7 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 		}
 	}
 
-	// Populate template ID and hash if template was resolved
-	if resolvedTemplate != nil && agent.AppliedConfig != nil {
-		agent.AppliedConfig.TemplateID = resolvedTemplate.ID
-		agent.AppliedConfig.TemplateHash = resolvedTemplate.ContentHash
-	}
+	s.populateAgentConfig(agent, grove, resolvedTemplate)
 
 	if err := s.store.CreateAgent(ctx, agent); err != nil {
 		writeErrorFromErr(w, err, "")
@@ -4103,6 +4075,42 @@ func (s *Server) getHarnessFromTemplate(template *store.Template, fallback strin
 		return template.Harness
 	}
 	return fallback
+}
+
+// populateAgentConfig enriches an agent's AppliedConfig with grove-derived and
+// template-derived fields after the initial config block has been set up.
+// It populates GitClone config from grove labels for git-anchored groves, and
+// sets template ID, hash, and hub access scopes from the resolved template.
+func (s *Server) populateAgentConfig(agent *store.Agent, grove *store.Grove, resolvedTemplate *store.Template) {
+	if agent.AppliedConfig == nil {
+		return
+	}
+
+	// Populate GitClone config for git-anchored groves.
+	if grove != nil && grove.GitRemote != "" {
+		cloneURL := grove.Labels["scion.dev/clone-url"]
+		if cloneURL == "" {
+			cloneURL = "https://" + grove.GitRemote + ".git"
+		}
+		defaultBranch := grove.Labels["scion.dev/default-branch"]
+		if defaultBranch == "" {
+			defaultBranch = "main"
+		}
+		agent.AppliedConfig.GitClone = &api.GitCloneConfig{
+			URL:    cloneURL,
+			Branch: defaultBranch,
+			Depth:  1,
+		}
+	}
+
+	// Populate template ID, hash, and hub access scopes if template was resolved.
+	if resolvedTemplate != nil {
+		agent.AppliedConfig.TemplateID = resolvedTemplate.ID
+		agent.AppliedConfig.TemplateHash = resolvedTemplate.ContentHash
+		if resolvedTemplate.Config != nil && resolvedTemplate.Config.HubAccess != nil {
+			agent.AppliedConfig.HubAccessScopes = resolvedTemplate.Config.HubAccess.Scopes
+		}
+	}
 }
 
 // resolveRuntimeBroker determines which runtime broker should run the agent.
