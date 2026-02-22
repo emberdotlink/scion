@@ -545,6 +545,29 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 
 		submitResp, err := gatherAndSubmitEnv(ctx, hubCtx, groveID, resp)
 		if err != nil {
+			// Clean up the provisioning agent on the Hub so it doesn't
+			// linger in a half-created state on the next start attempt.
+			agentID := ""
+			if resp.Agent != nil {
+				agentID = resp.Agent.ID
+			}
+			if agentID == "" && resp.EnvGather != nil {
+				agentID = resp.EnvGather.AgentID
+			}
+			if agentID != "" {
+				delCtx, delCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer delCancel()
+				delErr := hubCtx.Client.GroveAgents(groveID).Delete(delCtx, agentID, &hubclient.DeleteAgentOptions{
+					DeleteFiles: true,
+				})
+				if delErr != nil {
+					if debugMode {
+						util.Debugf("[env-gather] failed to clean up provisioning agent %s: %v", agentID, delErr)
+					}
+				} else if debugMode {
+					util.Debugf("[env-gather] cleaned up provisioning agent %s after env-gather failure", agentID)
+				}
+			}
 			return fmt.Errorf("env-gather failed: %w", err)
 		}
 		// Replace response with the finalized one
