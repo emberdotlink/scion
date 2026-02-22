@@ -24,6 +24,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -180,6 +181,17 @@ func stopAllAgents() error {
 		return nil
 	}
 
+	if stopRm {
+		fmt.Printf("\nThe following %d agent(s) will be stopped and removed:\n", len(running))
+		for _, ra := range running {
+			fmt.Printf("  - %s\n", ra.Name)
+		}
+		fmt.Println()
+		if !hubsync.ConfirmAction("Continue?", false, autoConfirm) {
+			return nil
+		}
+	}
+
 	type agentResult struct {
 		Name    string
 		Status  string
@@ -324,6 +336,17 @@ func stopAllAgentsViaHub(hubCtx *HubContext) error {
 		}
 		statusln("No running agents found.")
 		return nil
+	}
+
+	if stopRm {
+		fmt.Printf("\nThe following %d agent(s) will be stopped and removed:\n", len(running))
+		for _, a := range running {
+			fmt.Printf("  - %s\n", a.Name)
+		}
+		fmt.Println()
+		if !hubsync.ConfirmAction("Continue?", false, autoConfirm) {
+			return nil
+		}
 	}
 
 	type agentResult struct {
