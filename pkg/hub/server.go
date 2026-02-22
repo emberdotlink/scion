@@ -743,6 +743,48 @@ func (s *Server) GenerateAgentToken(agentID, groveID string, additionalScopes ..
 }
 
 // Start starts the HTTP server.
+// startPurgeLoop starts a background goroutine that periodically purges expired
+// soft-deleted agents. It's a no-op if soft-delete retention is not configured.
+func (s *Server) startPurgeLoop(ctx context.Context) {
+	retention := s.config.SoftDeleteRetention
+	if retention <= 0 {
+		return
+	}
+
+	slog.Info("Starting soft-delete purge loop", "retention", retention, "interval", "1h")
+
+	go func() {
+		// Run immediately on startup
+		s.purgeExpiredAgents(ctx)
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.purgeExpiredAgents(ctx)
+			}
+		}
+	}()
+}
+
+// purgeExpiredAgents permanently removes soft-deleted agents that have exceeded
+// the retention period.
+func (s *Server) purgeExpiredAgents(ctx context.Context) {
+	cutoff := time.Now().Add(-s.config.SoftDeleteRetention)
+	purged, err := s.store.PurgeDeletedAgents(ctx, cutoff)
+	if err != nil {
+		slog.Error("Failed to purge deleted agents", "error", err)
+		return
+	}
+	if purged > 0 {
+		slog.Info("Purged expired soft-deleted agents", "count", purged, "cutoff", cutoff)
+	}
+}
+
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.startTime = time.Now()
@@ -756,6 +798,9 @@ func (s *Server) Start(ctx context.Context) error {
 		WriteTimeout: s.config.WriteTimeout,
 	}
 	s.mu.Unlock()
+
+	// Start the purge loop for soft-deleted agents
+	s.startPurgeLoop(ctx)
 
 	slog.Info("Hub API server starting", "host", s.config.Host, "port", s.config.Port)
 
