@@ -37,7 +37,7 @@ type CreateTemplateRequest struct {
 	Slug         string               `json:"slug,omitempty"`
 	DisplayName  string               `json:"displayName,omitempty"`
 	Description  string               `json:"description,omitempty"`
-	Harness      string               `json:"harness"`
+	Harness      string               `json:"harness,omitempty"`
 	Scope        string               `json:"scope"`
 	ScopeID      string               `json:"scopeId,omitempty"`
 	GroveID      string               `json:"groveId,omitempty"` // Deprecated: use ScopeID
@@ -186,11 +186,6 @@ func (s *Server) createTemplateV2(w http.ResponseWriter, r *http.Request) {
 		ValidationError(w, "name is required", nil)
 		return
 	}
-	if req.Harness == "" {
-		ValidationError(w, "harness is required", nil)
-		return
-	}
-
 	// Resolve scope ID
 	scopeID := req.ScopeID
 	if scopeID == "" && req.GroveID != "" {

@@ -732,11 +732,10 @@ func runTemplateSync(cmd *cobra.Command, args []string) error {
 	// Create template object for harness detection
 	tpl := &config.Template{Name: match.Name, Path: match.LocalPath}
 
-	// Detect harness type from template config
+	// Detect harness type from template config (optional - can be resolved during agent provisioning)
 	harnessType, err := detectHarnessType(tpl)
 	if err != nil {
-		return fmt.Errorf("failed to detect harness type: %w\n\n"+
-			"Ensure the template has a valid scion-agent.yaml with a 'harness' or 'default_harness_config' field", err)
+		return fmt.Errorf("failed to read template config: %w", err)
 	}
 
 	return syncTemplateToHub(hubCtx, hubName, tpl.Path, destScope, harnessType)

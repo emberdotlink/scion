@@ -202,7 +202,23 @@ func containsHelper(s, substr string) bool {
 }
 
 func TestDetectHarnessType(t *testing.T) {
-	t.Run("detects from harness field", func(t *testing.T) {
+	t.Run("detects from harness_config field", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configContent := `harness_config: claude`
+		if err := os.WriteFile(filepath.Join(tmpDir, "scion-agent.yaml"), []byte(configContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+		tpl := &config.Template{Name: "test", Path: tmpDir}
+		harness, err := detectHarnessType(tpl)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if harness != "claude" {
+			t.Errorf("expected 'claude', got %q", harness)
+		}
+	})
+
+	t.Run("detects from legacy harness field", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configContent := `{"harness": "gemini"}`
 		if err := os.WriteFile(filepath.Join(tmpDir, "scion-agent.json"), []byte(configContent), 0644); err != nil {
@@ -215,6 +231,22 @@ func TestDetectHarnessType(t *testing.T) {
 		}
 		if harness != "gemini" {
 			t.Errorf("expected 'gemini', got %q", harness)
+		}
+	})
+
+	t.Run("harness_config takes priority over legacy harness", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configContent := `{"harness_config": "claude", "harness": "gemini"}`
+		if err := os.WriteFile(filepath.Join(tmpDir, "scion-agent.json"), []byte(configContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+		tpl := &config.Template{Name: "test", Path: tmpDir}
+		harness, err := detectHarnessType(tpl)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if harness != "claude" {
+			t.Errorf("expected 'claude', got %q", harness)
 		}
 	})
 
@@ -250,16 +282,19 @@ func TestDetectHarnessType(t *testing.T) {
 		}
 	})
 
-	t.Run("returns error when undetectable", func(t *testing.T) {
+	t.Run("returns empty string when undetectable", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configContent := `{}`
 		if err := os.WriteFile(filepath.Join(tmpDir, "scion-agent.json"), []byte(configContent), 0644); err != nil {
 			t.Fatal(err)
 		}
 		tpl := &config.Template{Name: "my-custom-template", Path: tmpDir}
-		_, err := detectHarnessType(tpl)
-		if err == nil {
-			t.Fatal("expected error for undetectable harness type")
+		harness, err := detectHarnessType(tpl)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if harness != "" {
+			t.Errorf("expected empty string, got %q", harness)
 		}
 	})
 }

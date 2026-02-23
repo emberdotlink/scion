@@ -461,19 +461,26 @@ func updateHubTemplate(ctx context.Context, hubCtx *HubContext, hubTemplate *hub
 }
 
 // detectHarnessType attempts to determine the harness type from template config.
+// Returns empty string (not an error) when the harness type cannot be determined,
+// since it can be resolved later during agent provisioning via harness-config
+// settings, profiles, or CLI flags.
 func detectHarnessType(tpl *config.Template) (string, error) {
 	cfg, err := tpl.LoadConfig()
 	if err != nil {
 		return "", err
 	}
 
-	if cfg.Harness != "" {
-		return cfg.Harness, nil
+	if cfg.HarnessConfig != "" {
+		return cfg.HarnessConfig, nil
 	}
 
-	// For harness-agnostic templates, fall back to default_harness_config
 	if cfg.DefaultHarnessConfig != "" {
 		return cfg.DefaultHarnessConfig, nil
+	}
+
+	// Legacy field - still honored for backwards compatibility
+	if cfg.Harness != "" {
+		return cfg.Harness, nil
 	}
 
 	// Try to infer from template name
@@ -489,7 +496,7 @@ func detectHarnessType(tpl *config.Template) (string, error) {
 		return "opencode", nil
 	}
 
-	return "", fmt.Errorf("harness type not specified in template config and could not be inferred from name")
+	return "", nil
 }
 
 // computeLocalContentHash computes the content hash for local files.

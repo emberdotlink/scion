@@ -86,7 +86,7 @@ type ListTemplatesResponse struct {
 // CreateTemplateRequest is the request for creating a template.
 type CreateTemplateRequest struct {
 	Name       string          `json:"name"`
-	Harness    string          `json:"harness"`
+	Harness    string          `json:"harness,omitempty"`
 	Scope      string          `json:"scope"`
 	GroveID    string          `json:"groveId,omitempty"`
 	Config     *TemplateConfig `json:"config,omitempty"`

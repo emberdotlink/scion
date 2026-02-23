@@ -3014,11 +3014,6 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 		ValidationError(w, "name is required", nil)
 		return
 	}
-	if template.Harness == "" {
-		ValidationError(w, "harness is required", nil)
-		return
-	}
-
 	template.ID = api.NewUUID()
 	template.Slug = api.Slugify(template.Name)
 
