@@ -1883,3 +1883,46 @@ func TestDispatchAgentCreate_IncludesStorageEnvVars(t *testing.T) {
 			mockClient.lastCreateReq.ResolvedEnv["API_TOKEN"])
 	}
 }
+
+func TestBuildCreateRequest_PropagatesHarnessName(t *testing.T) {
+	ctx := context.Background()
+	memStore := createTestStore(t)
+
+	broker := &store.RuntimeBroker{
+		ID:       "host-1",
+		Name:     "test-host",
+		Slug:     "test-host",
+		Endpoint: "http://localhost:9800",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := memStore.CreateRuntimeBroker(ctx, broker); err != nil {
+		t.Fatalf("failed to create runtime broker: %v", err)
+	}
+
+	mockClient := &mockRuntimeBrokerClient{}
+	dispatcher := NewHTTPAgentDispatcherWithClient(memStore, mockClient, false)
+
+	agent := &store.Agent{
+		ID:              "agent-harness-1",
+		Name:            "harness-agent",
+		Slug:            "harness-agent",
+		GroveID:         "grove-1",
+		RuntimeBrokerID: "host-1",
+		AppliedConfig: &store.AgentAppliedConfig{
+			Harness: "gemini",
+			Task:    "do something",
+		},
+	}
+
+	req, err := dispatcher.buildCreateRequest(ctx, agent, "TestPropagatesHarness")
+	if err != nil {
+		t.Fatalf("buildCreateRequest failed: %v", err)
+	}
+
+	if req.Config == nil {
+		t.Fatal("expected config to be present")
+	}
+	if req.Config.Harness != "gemini" {
+		t.Errorf("expected Harness 'gemini', got '%s'", req.Config.Harness)
+	}
+}

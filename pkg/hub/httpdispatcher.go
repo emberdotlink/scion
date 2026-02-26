@@ -589,6 +589,7 @@ func (d *HTTPAgentDispatcher) buildCreateRequest(ctx context.Context, agent *sto
 		req.Config = &RemoteAgentConfig{
 			Template:     agent.Template,
 			Image:        agent.AppliedConfig.Image,
+			Harness:      agent.AppliedConfig.Harness,
 			Task:         agent.AppliedConfig.Task,
 			Workspace:    workspace,
 			Profile:      agent.AppliedConfig.Profile,

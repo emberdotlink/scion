@@ -379,6 +379,24 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// For hub-native groves (GroveSlug set, no local provider path), resolve
+	// the conventional grove path (~/.scion/groves/<slug>/) early so that
+	// env-gather can load settings and determine required env keys.
+	if req.GroveSlug != "" && req.GrovePath == "" {
+		globalDir, err := config.GetGlobalDir()
+		if err != nil {
+			RuntimeError(w, "Failed to get global dir: "+err.Error())
+			return
+		}
+		req.GrovePath = filepath.Join(globalDir, "groves", req.GroveSlug)
+		if s.config.Debug {
+			slog.Debug("Resolved hub-native grove path from slug",
+				"slug", req.GroveSlug,
+				"path", req.GrovePath,
+			)
+		}
+	}
+
 	// Env-gather: if GatherEnv is true, evaluate env completeness
 	if req.GatherEnv {
 		required, secretInfo := s.extractRequiredEnvKeys(req)
@@ -482,24 +500,6 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 					"brokerHas", brokerHas,
 				)
 			}
-		}
-	}
-
-	// For hub-native groves (GroveSlug set, no local provider path), resolve
-	// the conventional grove path (~/.scion/groves/<slug>/) so the agent is
-	// created in the correct location instead of the broker's local grove.
-	if req.GroveSlug != "" && req.GrovePath == "" {
-		globalDir, err := config.GetGlobalDir()
-		if err != nil {
-			RuntimeError(w, "Failed to get global dir: "+err.Error())
-			return
-		}
-		req.GrovePath = filepath.Join(globalDir, "groves", req.GroveSlug)
-		if s.config.Debug {
-			slog.Debug("Resolved hub-native grove path from slug",
-				"slug", req.GroveSlug,
-				"path", req.GrovePath,
-			)
 		}
 	}
 

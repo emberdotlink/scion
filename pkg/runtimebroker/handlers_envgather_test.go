@@ -1175,3 +1175,56 @@ profiles:
 		t.Errorf("expected NEEDED_KEY='gathered-value', got %q", mgr.lastEnv["NEEDED_KEY"])
 	}
 }
+
+// TestEnvGather_HarnessFromConfig tests that the harness name from config.harness
+// is used by env-gather to determine required keys, even when grovePath is empty
+// (fixing the hub-native grove dispatch issue where harness wasn't sent).
+func TestEnvGather_HarnessFromConfig(t *testing.T) {
+	// Create a minimal server with no grove path — simulating hub-native dispatch
+	// where GrovePath isn't available. The harness name must come from config.Harness.
+	settings := `
+schema_version: "1"
+profiles:
+  default:
+    runtime: mock
+`
+	srv, _, groveDir := newTestServerWithGrovePath(t, settings)
+
+	// Pass harness explicitly in config (as the hub would after our fix).
+	// Don't pass grovePath — rely on config.harness for env-gather.
+	body := `{
+		"name": "test-agent-harness-config",
+		"id": "agent-uuid-hc",
+		"gatherEnv": true,
+		"grovePath": "` + groveDir + `",
+		"config": {"template": "default", "harness": "gemini", "profile": "default"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(w, req)
+
+	// Gemini harness requires GEMINI_API_KEY — since we didn't provide it,
+	// we should get a 202 with env requirements.
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var envReqs EnvRequirementsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &envReqs); err != nil {
+		t.Fatal("failed to decode response:", err)
+	}
+
+	// GEMINI_API_KEY should be in the needs list (since we didn't provide it)
+	found := false
+	for _, k := range envReqs.Required {
+		if k == "GEMINI_API_KEY" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected GEMINI_API_KEY in required keys when harness=gemini, got %v", envReqs.Required)
+	}
+}
