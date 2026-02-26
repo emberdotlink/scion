@@ -814,10 +814,12 @@ export class ScionPageGroveDetail extends LitElement {
               New Agent
             </sl-button>
           </a>
-          <sl-button size="small" disabled>
-            <sl-icon slot="prefix" name="gear"></sl-icon>
-            Settings
-          </sl-button>
+          <a href="/groves/${this.groveId}/settings" style="text-decoration: none;">
+            <sl-button size="small">
+              <sl-icon slot="prefix" name="gear"></sl-icon>
+              Settings
+            </sl-button>
+          </a>
         </div>
       </div>
 

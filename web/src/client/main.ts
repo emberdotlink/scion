@@ -61,6 +61,7 @@ import '../components/pages/home.js';
 import '../components/pages/groves.js';
 import '../components/pages/grove-create.js';
 import '../components/pages/grove-detail.js';
+import '../components/pages/grove-settings.js';
 import '../components/pages/agents.js';
 import '../components/pages/agent-detail.js';
 import '../components/pages/agent-create.js';
@@ -108,6 +109,7 @@ const ROUTES: { pattern: RegExp; tag: string }[] = [
   { pattern: /^\/admin\/users$/, tag: 'scion-page-admin-users' },
   { pattern: /^\/admin\/groups$/, tag: 'scion-page-admin-groups' },
   { pattern: /^\/groves\/new$/, tag: 'scion-page-grove-create' },
+  { pattern: /^\/groves\/[^/]+\/settings$/, tag: 'scion-page-grove-settings' },
   { pattern: /^\/groves\/[^/]+$/, tag: 'scion-page-grove-detail' },
   { pattern: /^\/agents\/new$/, tag: 'scion-page-agent-create' },
   { pattern: /^\/agents\/[^/]+\/terminal$/, tag: 'scion-page-terminal' },
@@ -161,6 +163,7 @@ async function init(): Promise<void> {
     customElements.whenDefined('scion-page-groves'),
     customElements.whenDefined('scion-page-grove-create'),
     customElements.whenDefined('scion-page-grove-detail'),
+    customElements.whenDefined('scion-page-grove-settings'),
     customElements.whenDefined('scion-page-agents'),
     customElements.whenDefined('scion-page-agent-detail'),
     customElements.whenDefined('scion-page-agent-create'),
