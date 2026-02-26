@@ -221,6 +221,15 @@ func (s *GroupStore) UpdateGroup(ctx context.Context, g *store.Group) error {
 	} else {
 		update.ClearOwnerID()
 	}
+	if g.GroveID != "" {
+		groveUID, err := parseUUID(g.GroveID)
+		if err != nil {
+			return err
+		}
+		update.SetGroveID(groveUID)
+	} else {
+		update.ClearGroveID()
+	}
 
 	updated, err := update.Save(ctx)
 	if err != nil {

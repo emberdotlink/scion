@@ -234,3 +234,42 @@ func TestCompositeStore_AddGroupMember_Idempotent(t *testing.T) {
 	err = cs.AddGroupMember(ctx, member)
 	assert.ErrorIs(t, err, store.ErrAlreadyExists)
 }
+
+// TestCompositeStore_CreateGroup_WithGroveID tests that creating a group with a
+// grove ID succeeds even though the grove only exists in the base (SQLite) store.
+// The CompositeStore should create a shadow grove record in the Ent database to
+// satisfy the foreign key constraint.
+func TestCompositeStore_CreateGroup_WithGroveID(t *testing.T) {
+	cs := newTestCompositeStore(t)
+	ctx := context.Background()
+
+	// Create a grove in the base store only (not in Ent)
+	groveID := uuid.New().String()
+	err := cs.Store.CreateGrove(ctx, &store.Grove{
+		ID:      groveID,
+		Name:    "Shadow Grove",
+		Slug:    "shadow-grove",
+		Created: time.Now(),
+		Updated: time.Now(),
+	})
+	require.NoError(t, err)
+
+	// Create a group with grove_id — this should succeed because the
+	// CompositeStore creates a shadow grove record in Ent before creating
+	// the group.
+	groupID := uuid.New().String()
+	err = cs.CreateGroup(ctx, &store.Group{
+		ID:        groupID,
+		Name:      "Shadow Grove Agents",
+		Slug:      "grove:shadow-grove:agents",
+		GroupType: store.GroupTypeGroveAgents,
+		GroveID:   groveID,
+	})
+	require.NoError(t, err, "CreateGroup should succeed for grove that exists only in base store")
+
+	// Verify the group was created with the correct grove ID
+	group, err := cs.GetGroup(ctx, groupID)
+	require.NoError(t, err)
+	assert.Equal(t, groveID, group.GroveID)
+	assert.Equal(t, "grove:shadow-grove:agents", group.Slug)
+}

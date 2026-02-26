@@ -56,6 +56,14 @@ func (c *CompositeStore) Close() error {
 // GroupStore method overrides — delegate to Ent-backed GroupStore.
 
 func (c *CompositeStore) CreateGroup(ctx context.Context, group *store.Group) error {
+	// Ensure the grove exists in the Ent database before creating the group,
+	// since groves are stored in the base (SQLite) store but groups are in Ent
+	// which has a foreign key constraint on grove_id.
+	if group.GroveID != "" {
+		if err := c.ensureEntGrove(ctx, group.GroveID); err != nil {
+			return fmt.Errorf("ensuring grove in ent store: %w", err)
+		}
+	}
 	return c.groups.CreateGroup(ctx, group)
 }
 

@@ -1682,18 +1682,36 @@ func (s *Server) createGrove(w http.ResponseWriter, r *http.Request) {
 
 // createGroveGroup creates the implicit grove_agents group for a grove.
 // This is a best-effort operation; failures are logged but don't fail the caller.
+// If the group already exists (e.g., grove was deleted and recreated with the same
+// slug), the existing group is reused and its grove ID association is updated.
 func (s *Server) createGroveGroup(ctx context.Context, grove *store.Grove) {
+	agentsSlug := "grove:" + grove.Slug + ":agents"
 	groveGroup := &store.Group{
 		ID:        api.NewUUID(),
 		Name:      grove.Name + " Agents",
-		Slug:      "grove:" + grove.Slug + ":agents",
+		Slug:      agentsSlug,
 		GroupType: store.GroupTypeGroveAgents,
 		GroveID:   grove.ID,
 		OwnerID:   grove.OwnerID,
 		CreatedBy: grove.CreatedBy,
 	}
 	if err := s.store.CreateGroup(ctx, groveGroup); err != nil {
-		slog.Warn("failed to create grove group", "grove", grove.ID, "error", err)
+		if !errors.Is(err, store.ErrAlreadyExists) {
+			slog.Warn("failed to create grove group", "grove", grove.ID, "error", err)
+			return
+		}
+		// Group already exists — look it up and update its grove ID association
+		existing, lookupErr := s.store.GetGroupBySlug(ctx, agentsSlug)
+		if lookupErr != nil {
+			slog.Warn("failed to look up existing grove agents group",
+				"grove", grove.ID, "slug", agentsSlug, "error", lookupErr)
+			return
+		}
+		existing.GroveID = grove.ID
+		if updateErr := s.store.UpdateGroup(ctx, existing); updateErr != nil {
+			slog.Warn("failed to update existing grove agents group",
+				"grove", grove.ID, "slug", agentsSlug, "error", updateErr)
+		}
 	}
 }
 
@@ -1729,6 +1747,10 @@ func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *st
 		membersGroup = existing
 		// Update the grove ID association in case it changed (recreated grove)
 		membersGroup.GroveID = grove.ID
+		if updateErr := s.store.UpdateGroup(ctx, membersGroup); updateErr != nil {
+			slog.Warn("failed to update existing grove members group grove ID",
+				"grove", grove.ID, "slug", membersSlug, "error", updateErr)
+		}
 	}
 
 	// Add the creating user as a member (idempotent — ErrAlreadyExists is fine)
@@ -1760,9 +1782,24 @@ func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *st
 		if !errors.Is(err, store.ErrAlreadyExists) {
 			slog.Warn("failed to create grove member policy",
 				"grove", grove.ID, "policy", policyName, "error", err)
+			return
 		}
-		// Policy already exists — that's fine, the binding should already be in place
-		return
+		// Policy already exists — look it up and update its scope ID in case the
+		// grove was recreated. Also ensure the binding to the current members group.
+		existing, lookupErr := s.store.ListPolicies(ctx, store.PolicyFilter{Name: policyName}, store.ListOptions{Limit: 1})
+		if lookupErr != nil || len(existing.Items) == 0 {
+			slog.Warn("failed to look up existing grove member policy",
+				"grove", grove.ID, "policy", policyName, "error", lookupErr)
+			return
+		}
+		policy = &existing.Items[0]
+		if policy.ScopeID != grove.ID {
+			policy.ScopeID = grove.ID
+			if updateErr := s.store.UpdatePolicy(ctx, policy); updateErr != nil {
+				slog.Warn("failed to update existing grove member policy scope",
+					"grove", grove.ID, "policy", policyName, "error", updateErr)
+			}
+		}
 	}
 
 	// Bind policy to the members group
