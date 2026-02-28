@@ -30,7 +30,6 @@ func TestStatusHandler_UpdateActivity(t *testing.T) {
 
 	info := readAgentInfo(t, statusPath)
 	assert.Equal(t, "thinking", info.Activity)
-	assert.Equal(t, "thinking", info.Status) // backward compat
 
 	// Test updating to sticky activity (waiting_for_input)
 	err = h.UpdateActivity(state.ActivityWaitingForInput, "")
@@ -38,7 +37,6 @@ func TestStatusHandler_UpdateActivity(t *testing.T) {
 
 	info = readAgentInfo(t, statusPath)
 	assert.Equal(t, "waiting_for_input", info.Activity)
-	assert.Equal(t, "waiting_for_input", info.Status)
 }
 
 func TestStatusHandler_UpdatePhase(t *testing.T) {
@@ -53,7 +51,6 @@ func TestStatusHandler_UpdatePhase(t *testing.T) {
 	info := readAgentInfo(t, statusPath)
 	assert.Equal(t, "starting", info.Phase)
 	assert.Equal(t, "", info.Activity)
-	assert.Equal(t, "starting", info.Status) // phase shown when no activity
 
 	err = h.UpdatePhase(state.PhaseRunning, state.ActivityIdle, "")
 	require.NoError(t, err)
@@ -61,7 +58,6 @@ func TestStatusHandler_UpdatePhase(t *testing.T) {
 	info = readAgentInfo(t, statusPath)
 	assert.Equal(t, "running", info.Phase)
 	assert.Equal(t, "idle", info.Activity)
-	assert.Equal(t, "idle", info.Status) // activity shown when phase is running
 }
 
 func TestStatusHandler_Handle(t *testing.T) {
@@ -534,7 +530,7 @@ func TestStatusHandler_PreservesExtraFields(t *testing.T) {
 
 	result := readAgentInfoMap(t, statusPath)
 	assert.Equal(t, "thinking", result["activity"])
-	assert.Equal(t, "thinking", result["status"])
+	assert.Nil(t, result["status"], "legacy status field should be removed")
 	assert.Equal(t, "my-template", result["template"], "template field should be preserved")
 	assert.Equal(t, "claude", result["harnessConfig"], "harnessConfig field should be preserved")
 	assert.Equal(t, "docker", result["runtime"], "runtime field should be preserved")
@@ -548,16 +544,16 @@ func TestStatusHandler_PreservesExtraFields(t *testing.T) {
 
 	result = readAgentInfoMap(t, statusPath)
 	assert.Equal(t, "waiting_for_input", result["activity"])
-	assert.Equal(t, "waiting_for_input", result["status"])
-	assert.Equal(t, "my-template", result["template"], "template field should survive status update")
-	assert.Equal(t, "claude", result["harnessConfig"], "harnessConfig field should survive status update")
+	assert.Nil(t, result["status"], "legacy status field should be removed")
+	assert.Equal(t, "my-template", result["template"], "template field should survive activity update")
+	assert.Equal(t, "claude", result["harnessConfig"], "harnessConfig field should survive activity update")
 }
 
-func TestStatusHandler_RemovesLegacySessionStatus(t *testing.T) {
+func TestStatusHandler_RemovesLegacyFields(t *testing.T) {
 	tmpDir := t.TempDir()
 	statusPath := filepath.Join(tmpDir, "agent-info.json")
 
-	// Seed agent-info.json with legacy sessionStatus field
+	// Seed agent-info.json with legacy status and sessionStatus fields
 	initial := map[string]interface{}{
 		"phase":         "running",
 		"activity":      "idle",
@@ -570,13 +566,13 @@ func TestStatusHandler_RemovesLegacySessionStatus(t *testing.T) {
 
 	h := &StatusHandler{StatusPath: statusPath}
 
-	// Any UpdateActivity call should remove the legacy sessionStatus field
+	// Any UpdateActivity call should remove the legacy status and sessionStatus fields
 	err = h.UpdateActivity(state.ActivityThinking, "")
 	require.NoError(t, err)
 
 	result := readAgentInfoMap(t, statusPath)
 	assert.Equal(t, "thinking", result["activity"])
-	assert.Equal(t, "thinking", result["status"])
+	assert.Nil(t, result["status"], "legacy status should be removed")
 	assert.Nil(t, result["sessionStatus"], "legacy sessionStatus should be removed")
 }
 
@@ -707,7 +703,6 @@ type agentInfoFields struct {
 	Phase    string `json:"phase,omitempty"`
 	Activity string `json:"activity,omitempty"`
 	ToolName string `json:"toolName,omitempty"`
-	Status   string `json:"status,omitempty"`
 }
 
 // readAgentInfo is a test helper that reads and parses agent-info.json.

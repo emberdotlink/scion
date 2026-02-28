@@ -110,15 +110,8 @@ func (h *StatusHandler) UpdateActivity(activity state.Activity, toolName string)
 		delete(info, "toolName")
 	}
 
-	// Compute backward-compat status field
-	phase, _ := info["phase"].(string)
-	if phase == "" {
-		phase = string(state.PhaseRunning) // assume running if not set
-	}
-	as := state.AgentState{Phase: state.Phase(phase), Activity: activity}
-	info["status"] = as.DisplayStatus()
-
-	// Remove legacy sessionStatus field if present
+	// Remove legacy fields if present
+	delete(info, "status")
 	delete(info, "sessionStatus")
 
 	return h.writeAgentInfoLocked(info)
@@ -149,11 +142,8 @@ func (h *StatusHandler) UpdatePhase(phase state.Phase, activity state.Activity, 
 		delete(info, "toolName")
 	}
 
-	// Compute backward-compat status field
-	as := state.AgentState{Phase: phase, Activity: activity}
-	info["status"] = as.DisplayStatus()
-
-	// Remove legacy sessionStatus field if present
+	// Remove legacy fields if present
+	delete(info, "status")
 	delete(info, "sessionStatus")
 
 	return h.writeAgentInfoLocked(info)
@@ -188,15 +178,10 @@ func (h *StatusHandler) updateActivityIfNotSticky(activity state.Activity, toolN
 		delete(info, "toolName")
 	}
 
-	// Compute backward-compat status field
-	phase, _ := info["phase"].(string)
-	if phase == "" {
-		phase = string(state.PhaseRunning)
-	}
-	as := state.AgentState{Phase: state.Phase(phase), Activity: activity}
-	info["status"] = as.DisplayStatus()
-
+	// Remove legacy fields if present
+	delete(info, "status")
 	delete(info, "sessionStatus")
+
 	return h.writeAgentInfoLocked(info)
 }
 
