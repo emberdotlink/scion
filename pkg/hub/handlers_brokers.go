@@ -41,14 +41,10 @@ func (s *Server) createBrokerRegistration(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Require admin authentication
+	// Require authenticated user (any role can register a broker and become its owner)
 	user := GetUserIdentityFromContext(r.Context())
 	if user == nil {
 		Unauthorized(w)
-		return
-	}
-	if user.Role() != "admin" {
-		Forbidden(w)
 		return
 	}
 
@@ -195,15 +191,25 @@ func (s *Server) handleBrokerRotateSecret(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check authorization - either admin user or the broker itself
+	// Check authorization - admin user, broker owner, or the broker itself
 	user := GetUserIdentityFromContext(r.Context())
-	broker := GetBrokerIdentityFromContext(r.Context())
+	brokerIdent := GetBrokerIdentityFromContext(r.Context())
 
 	authorized := false
 	if user != nil && user.Role() == "admin" {
 		authorized = true
-	} else if broker != nil && broker.BrokerID() == brokerID {
+	} else if brokerIdent != nil && brokerIdent.BrokerID() == brokerID {
 		authorized = true
+	} else if user != nil {
+		// Check if user is the broker owner
+		broker, err := s.store.GetRuntimeBroker(r.Context(), brokerID)
+		if err != nil {
+			writeErrorFromErr(w, err, "")
+			return
+		}
+		if broker.CreatedBy == user.ID() {
+			authorized = true
+		}
 	}
 
 	if !authorized {
@@ -240,8 +246,8 @@ func (s *Server) handleBrokerRotateSecret(w http.ResponseWriter, r *http.Request
 	if user != nil {
 		actorID = user.ID()
 		actorType = "user"
-	} else if broker != nil {
-		actorID = broker.BrokerID()
+	} else if brokerIdent != nil {
+		actorID = brokerIdent.BrokerID()
 		actorType = "broker"
 	}
 	LogRotateEvent(r.Context(), s.auditLogger, brokerID, actorID, actorType, getClientIP(r))

@@ -386,22 +386,8 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 
 	// Enforce broker-level dispatch authorization: only the broker owner can create agents on it
 	if runtimeBrokerID != "" {
-		if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
-			runtimeBroker, brokerErr := s.store.GetRuntimeBroker(ctx, runtimeBrokerID)
-			if brokerErr != nil {
-				writeErrorFromErr(w, brokerErr, "")
-				return
-			}
-			decision := s.authzService.CheckAccess(ctx, userIdent, Resource{
-				Type:    "broker",
-				ID:      runtimeBroker.ID,
-				OwnerID: runtimeBroker.CreatedBy,
-			}, ActionDispatch)
-			if !decision.Allowed {
-				writeError(w, http.StatusForbidden, ErrCodeForbidden,
-					"You don't have permission to create agents on this broker", nil)
-				return
-			}
+		if !s.checkBrokerDispatchAccess(ctx, w, runtimeBrokerID) {
+			return
 		}
 	}
 
@@ -2530,22 +2516,8 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 
 	// Enforce broker-level dispatch authorization: only the broker owner can create agents on it
 	if runtimeBrokerID != "" {
-		if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
-			runtimeBroker, brokerErr := s.store.GetRuntimeBroker(ctx, runtimeBrokerID)
-			if brokerErr != nil {
-				writeErrorFromErr(w, brokerErr, "")
-				return
-			}
-			decision := s.authzService.CheckAccess(ctx, userIdent, Resource{
-				Type:    "broker",
-				ID:      runtimeBroker.ID,
-				OwnerID: runtimeBroker.CreatedBy,
-			}, ActionDispatch)
-			if !decision.Allowed {
-				writeError(w, http.StatusForbidden, ErrCodeForbidden,
-					"You don't have permission to create agents on this broker", nil)
-				return
-			}
+		if !s.checkBrokerDispatchAccess(ctx, w, runtimeBrokerID) {
+			return
 		}
 	}
 
@@ -3443,6 +3415,15 @@ func (s *Server) updateRuntimeBroker(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
+	// Enforce authorization: only the broker owner or admins can update
+	if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
+		decision := s.authzService.CheckAccess(ctx, userIdent, brokerResource(broker), ActionUpdate)
+		if !decision.Allowed {
+			Forbidden(w)
+			return
+		}
+	}
+
 	var updates struct {
 		Name   string            `json:"name,omitempty"`
 		Labels map[string]string `json:"labels,omitempty"`
@@ -3471,18 +3452,25 @@ func (s *Server) updateRuntimeBroker(w http.ResponseWriter, r *http.Request, id 
 func (s *Server) deleteRuntimeBroker(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 
-	// Get the user who is performing this action for audit logging
+	// Get broker info before deletion for authz and audit logging
+	broker, err := s.store.GetRuntimeBroker(ctx, id)
+	if err != nil {
+		writeErrorFromErr(w, err, "")
+		return
+	}
+
+	// Enforce authorization: only the broker owner or admins can delete
 	var actorID string
 	if user := GetUserIdentityFromContext(ctx); user != nil {
 		actorID = user.ID()
+		decision := s.authzService.CheckAccess(ctx, user, brokerResource(broker), ActionDelete)
+		if !decision.Allowed {
+			Forbidden(w)
+			return
+		}
 	}
 
-	// Get broker info before deletion for audit logging
-	broker, _ := s.store.GetRuntimeBroker(ctx, id)
-	brokerName := ""
-	if broker != nil {
-		brokerName = broker.Name
-	}
+	brokerName := broker.Name
 
 	// Explicitly remove all grove provider records for this broker.
 	// While the DB schema has ON DELETE CASCADE, we do this at the
@@ -3513,6 +3501,30 @@ func (s *Server) deleteRuntimeBroker(w http.ResponseWriter, r *http.Request, id 
 	LogDeregisterEvent(ctx, s.auditLogger, id, brokerName, actorID, clientIP)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// checkBrokerDispatchAccess verifies that the current user has dispatch permission
+// on the given broker. Returns true if access is granted. If denied, it writes a
+// 403 response and returns false. If the broker cannot be found, it writes an error
+// and returns false.
+func (s *Server) checkBrokerDispatchAccess(ctx context.Context, w http.ResponseWriter, brokerID string) bool {
+	userIdent := GetUserIdentityFromContext(ctx)
+	if userIdent == nil {
+		// No user identity (e.g. broker-to-broker) — allow
+		return true
+	}
+	broker, err := s.store.GetRuntimeBroker(ctx, brokerID)
+	if err != nil {
+		writeErrorFromErr(w, err, "")
+		return false
+	}
+	decision := s.authzService.CheckAccess(ctx, userIdent, brokerResource(broker), ActionDispatch)
+	if !decision.Allowed {
+		writeError(w, http.StatusForbidden, ErrCodeForbidden,
+			"You don't have permission to create agents on this broker", nil)
+		return false
+	}
+	return true
 }
 
 // enrichBrokerCreatorNames batch-resolves CreatedBy UUIDs to display names for a slice of brokers.
@@ -6238,15 +6250,19 @@ func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter
 		return "", store.ErrNotFound
 	}
 
-	// Case 2: Use grove's default runtime broker (must be online)
+	// Case 2: Use grove's default runtime broker (must be online and dispatchable)
 	if grove.DefaultRuntimeBrokerID != "" {
 		// Check if the default broker is still available
 		for _, h := range availableBrokers {
 			if h.ID == grove.DefaultRuntimeBrokerID {
-				return grove.DefaultRuntimeBrokerID, nil
+				if s.canDispatchToBroker(ctx, &h) {
+					return grove.DefaultRuntimeBrokerID, nil
+				}
+				// Default broker exists but user can't dispatch to it — fall through
+				break
 			}
 		}
-		// Default broker is not available
+		// Default broker is not available or not dispatchable
 		if len(availableBrokers) > 0 {
 			NoRuntimeBroker(w, "Default runtime broker is unavailable; specify an alternative", brokerSummaries)
 		} else {
@@ -6259,19 +6275,45 @@ func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter
 	// If there's exactly one provider, use it regardless of online status
 	// (the dispatch will fail gracefully if the broker is truly unavailable)
 	if len(allProviders) == 1 {
-		return allProviders[0].BrokerID, nil
+		broker, brokerErr := s.store.GetRuntimeBroker(ctx, allProviders[0].BrokerID)
+		if brokerErr == nil && s.canDispatchToBroker(ctx, broker) {
+			return allProviders[0].BrokerID, nil
+		}
+		// Single provider but user can't dispatch
+		NoRuntimeBroker(w, "No runtime brokers available for this grove that you have permission to use", brokerSummaries)
+		return "", store.ErrNotFound
 	}
 
-	// Case 4: Multiple providers - require explicit selection from online brokers
-	switch len(availableBrokers) {
+	// Case 4: Multiple providers - filter to dispatchable brokers, then require selection
+	var dispatchable []store.RuntimeBroker
+	for _, h := range availableBrokers {
+		if s.canDispatchToBroker(ctx, &h) {
+			dispatchable = append(dispatchable, h)
+		}
+	}
+
+	switch len(dispatchable) {
 	case 0:
 		NoRuntimeBroker(w, "No runtime brokers available for this grove; register a runtime broker first", brokerSummaries)
 		return "", store.ErrNotFound
+	case 1:
+		return dispatchable[0].ID, nil
 	default:
-		// Multiple brokers available - require explicit selection
+		// Multiple dispatchable brokers - require explicit selection
 		NoRuntimeBroker(w, "Multiple runtime brokers available for this grove; specify runtimeBrokerId to select one", brokerSummaries)
 		return "", store.ErrNotFound
 	}
+}
+
+// canDispatchToBroker checks whether the current user has dispatch permission on a broker
+// without writing an HTTP response. Returns true if allowed (or if no user identity is present).
+func (s *Server) canDispatchToBroker(ctx context.Context, broker *store.RuntimeBroker) bool {
+	userIdent := GetUserIdentityFromContext(ctx)
+	if userIdent == nil {
+		return true
+	}
+	decision := s.authzService.CheckAccess(ctx, userIdent, brokerResource(broker), ActionDispatch)
+	return decision.Allowed
 }
 
 // getAvailableBrokersForGrove returns online runtime brokers that are providers to the grove.
