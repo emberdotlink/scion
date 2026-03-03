@@ -365,6 +365,56 @@ func TestChannelEventPublisher_WildcardSubscription(t *testing.T) {
 	}
 }
 
+func TestChannelEventPublisher_PublishNotification(t *testing.T) {
+	pub := NewChannelEventPublisher()
+	defer pub.Close()
+
+	ch, unsub := pub.Subscribe("notification.>")
+	defer unsub()
+
+	notif := &store.Notification{
+		ID:        "n1",
+		AgentID:   "a1",
+		GroveID:   "g1",
+		Status:    "COMPLETED",
+		Message:   "test-agent has reached a state of COMPLETED",
+		CreatedAt: time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC),
+	}
+
+	pub.PublishNotification(context.Background(), notif)
+
+	select {
+	case evt := <-ch:
+		if evt.Subject != "notification.created" {
+			t.Errorf("got subject %q, want %q", evt.Subject, "notification.created")
+		}
+		var data NotificationCreatedEvent
+		if err := json.Unmarshal(evt.Data, &data); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if data.ID != "n1" {
+			t.Errorf("got ID %q, want %q", data.ID, "n1")
+		}
+		if data.AgentID != "a1" {
+			t.Errorf("got AgentID %q, want %q", data.AgentID, "a1")
+		}
+		if data.GroveID != "g1" {
+			t.Errorf("got GroveID %q, want %q", data.GroveID, "g1")
+		}
+		if data.Status != "COMPLETED" {
+			t.Errorf("got Status %q, want %q", data.Status, "COMPLETED")
+		}
+		if data.Message != "test-agent has reached a state of COMPLETED" {
+			t.Errorf("got Message %q, want expected message", data.Message)
+		}
+		if data.CreatedAt != "2026-03-01T12:00:00.000Z" {
+			t.Errorf("got CreatedAt %q, want %q", data.CreatedAt, "2026-03-01T12:00:00.000Z")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for notification event")
+	}
+}
+
 func TestNoopEventPublisher(t *testing.T) {
 	var pub noopEventPublisher
 	ctx := context.Background()
@@ -379,5 +429,6 @@ func TestNoopEventPublisher(t *testing.T) {
 	pub.PublishBrokerConnected(ctx, "", "", nil)
 	pub.PublishBrokerDisconnected(ctx, "", nil)
 	pub.PublishBrokerStatus(ctx, "", "")
+	pub.PublishNotification(ctx, &store.Notification{})
 	pub.Close()
 }

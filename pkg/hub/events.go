@@ -36,6 +36,7 @@ type EventPublisher interface {
 	PublishBrokerConnected(ctx context.Context, brokerID, brokerName string, groveIDs []string)
 	PublishBrokerDisconnected(ctx context.Context, brokerID string, groveIDs []string)
 	PublishBrokerStatus(ctx context.Context, brokerID, status string)
+	PublishNotification(ctx context.Context, notif *store.Notification)
 	Close()
 }
 
@@ -52,6 +53,7 @@ func (noopEventPublisher) PublishGroveDeleted(_ context.Context, _ string)      
 func (noopEventPublisher) PublishBrokerConnected(_ context.Context, _, _ string, _ []string)   {}
 func (noopEventPublisher) PublishBrokerDisconnected(_ context.Context, _ string, _ []string)   {}
 func (noopEventPublisher) PublishBrokerStatus(_ context.Context, _, _ string)                  {}
+func (noopEventPublisher) PublishNotification(_ context.Context, _ *store.Notification)        {}
 func (noopEventPublisher) Close()                                                             {}
 
 // Event is a published event with a subject and JSON-encoded data.
@@ -123,6 +125,16 @@ type BrokerGroveEvent struct {
 type BrokerStatusEvent struct {
 	BrokerID string `json:"brokerId"`
 	Status   string `json:"status"`
+}
+
+// NotificationCreatedEvent is published when a user notification is created.
+type NotificationCreatedEvent struct {
+	ID        string `json:"id"`
+	AgentID   string `json:"agentId"`
+	GroveID   string `json:"groveId"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"createdAt"`
 }
 
 // ChannelEventPublisher is an in-process event publisher that fans out events
@@ -333,6 +345,19 @@ func (p *ChannelEventPublisher) PublishBrokerStatus(_ context.Context, brokerID,
 		Status:   status,
 	}
 	p.publish("broker."+brokerID+".status", evt)
+}
+
+// PublishNotification publishes a user notification event.
+func (p *ChannelEventPublisher) PublishNotification(_ context.Context, notif *store.Notification) {
+	evt := NotificationCreatedEvent{
+		ID:        notif.ID,
+		AgentID:   notif.AgentID,
+		GroveID:   notif.GroveID,
+		Status:    notif.Status,
+		Message:   notif.Message,
+		CreatedAt: notif.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+	}
+	p.publish("notification.created", evt)
 }
 
 // subjectMatchesPattern checks if a subject matches a NATS-style pattern.

@@ -169,7 +169,8 @@ func (nd *NotificationDispatcher) storeAndDispatch(ctx context.Context, sub *sto
 	case store.SubscriberTypeAgent:
 		nd.dispatchToAgent(ctx, sub, notif)
 	case store.SubscriberTypeUser:
-		nd.log.Debug("User notification stored (dispatch not yet implemented)",
+		nd.events.PublishNotification(ctx, notif)
+		nd.log.Debug("User notification published via SSE",
 			"subscriberID", sub.SubscriberID, "notificationID", notif.ID)
 	default:
 		nd.log.Warn("Unknown subscriber type", "type", sub.SubscriberType)
