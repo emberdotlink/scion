@@ -532,6 +532,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if req.Config != nil {
 		opts.Template = req.Config.Template
 		opts.Image = req.Config.Image
+		opts.HarnessConfig = req.Config.HarnessConfig
 		opts.Task = req.Config.Task
 		opts.Workspace = req.Config.Workspace
 		opts.Profile = req.Config.Profile
@@ -1495,6 +1496,7 @@ func (s *Server) finalizeEnv(w http.ResponseWriter, r *http.Request, id string) 
 	if origReq.Config != nil {
 		opts.Template = origReq.Config.Template
 		opts.Image = origReq.Config.Image
+		opts.HarnessConfig = origReq.Config.HarnessConfig
 		opts.Task = origReq.Config.Task
 		opts.Workspace = origReq.Config.Workspace
 		opts.Profile = origReq.Config.Profile

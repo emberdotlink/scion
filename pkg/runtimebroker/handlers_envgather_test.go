@@ -1228,3 +1228,56 @@ profiles:
 		t.Errorf("expected GEMINI_API_KEY in required keys when harness=gemini, got %v", envReqs.Required)
 	}
 }
+
+// TestEnvGather_FinalizeEnv_HarnessConfigPreserved tests that the harnessConfig
+// from the original create request is preserved through the env-gather/finalize-env
+// flow and passed to Start() in the StartOptions.
+func TestEnvGather_FinalizeEnv_HarnessConfigPreserved(t *testing.T) {
+	settings := `
+schema_version: "1"
+harness_configs:
+  claude:
+    harness: claude
+    env:
+      NEEDED_KEY: ""
+profiles:
+  default:
+    runtime: mock
+`
+	srv, mgr, groveDir := newTestServerWithGrovePath(t, settings)
+
+	// Phase 1: Create agent with gatherEnv and explicit harnessConfig — should get 202
+	createBody := `{
+		"name": "test-agent-hc-preserve",
+		"id": "agent-uuid-hcp",
+		"gatherEnv": true,
+		"grovePath": "` + groveDir + `",
+		"config": {"template": "claude", "harnessConfig": "claude", "profile": "default"}
+	}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(createW, createReq)
+
+	if createW.Code != http.StatusAccepted {
+		t.Fatalf("phase 1: expected 202, got %d: %s", createW.Code, createW.Body.String())
+	}
+
+	// Phase 2: Submit gathered env via finalize-env
+	finalizeBody := `{"env": {"NEEDED_KEY": "gathered-value"}}`
+	finalizeReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/test-agent-hc-preserve/finalize-env", strings.NewReader(finalizeBody))
+	finalizeReq.Header.Set("Content-Type", "application/json")
+	finalizeW := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(finalizeW, finalizeReq)
+
+	if finalizeW.Code != http.StatusCreated {
+		t.Fatalf("phase 2: expected 201, got %d: %s", finalizeW.Code, finalizeW.Body.String())
+	}
+
+	// Verify harnessConfig was preserved through finalize-env
+	if mgr.lastHarnessConfig != "claude" {
+		t.Errorf("expected HarnessConfig='claude', got %q", mgr.lastHarnessConfig)
+	}
+}

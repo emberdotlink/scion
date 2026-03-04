@@ -294,13 +294,15 @@ func TestMethodNotAllowed(t *testing.T) {
 // Used for testing that Hub credentials are properly set.
 type envCapturingManager struct {
 	mockManager
-	lastEnv          map[string]string
-	lastTemplateName string
+	lastEnv           map[string]string
+	lastTemplateName  string
+	lastHarnessConfig string
 }
 
 func (m *envCapturingManager) Start(ctx context.Context, opts api.StartOptions) (*api.AgentInfo, error) {
 	m.lastEnv = opts.Env
 	m.lastTemplateName = opts.TemplateName
+	m.lastHarnessConfig = opts.HarnessConfig
 	return m.mockManager.Start(ctx, opts)
 }
 
