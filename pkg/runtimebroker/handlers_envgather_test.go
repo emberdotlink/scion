@@ -510,7 +510,7 @@ profiles:
 		"gatherEnv": true,
 		"grovePath": "` + groveDir + `",
 		"resolvedSecrets": [
-			{"name": "OAUTH_CREDS", "type": "file", "target": "/home/gemini/.gemini/oauth_creds.json", "value": "{}", "source": "user"}
+			{"name": "GEMINI_OAUTH_CREDS", "type": "file", "target": "/home/gemini/.gemini/oauth_creds.json", "value": "{}", "source": "user"}
 		],
 		"config": {"template": "gemini", "profile": "default"}
 	}`
@@ -520,7 +520,7 @@ profiles:
 
 	srv.Handler().ServeHTTP(w, req)
 
-	// OAUTH_CREDS file secret should satisfy auth via auth-file detection,
+	// GEMINI_OAUTH_CREDS file secret should satisfy auth via auth-file detection,
 	// so GEMINI_API_KEY should NOT be required.
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201 (file secret satisfies auth), got %d: %s", w.Code, w.Body.String())

@@ -238,7 +238,7 @@ func DetectAuthTypeFromFileSecrets(harnessName string, fileSecretNames map[strin
 	switch harnessName {
 	case "gemini":
 		// Auto-detect priority: api-key → OAuth (auth-file) → ADC (vertex-ai)
-		if _, ok := fileSecretNames["OAUTH_CREDS"]; ok {
+		if _, ok := fileSecretNames["GEMINI_OAUTH_CREDS"]; ok {
 			return "auth-file"
 		}
 		if _, ok := fileSecretNames["GOOGLE_APPLICATION_CREDENTIALS"]; ok {

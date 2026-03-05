@@ -485,9 +485,9 @@ func TestDetectAuthTypeFromFileSecrets(t *testing.T) {
 		wantType   string
 	}{
 		{
-			"gemini with OAUTH_CREDS",
+			"gemini with GEMINI_OAUTH_CREDS",
 			"gemini",
-			map[string]struct{}{"OAUTH_CREDS": {}},
+			map[string]struct{}{"GEMINI_OAUTH_CREDS": {}},
 			"auth-file",
 		},
 		{
@@ -499,7 +499,7 @@ func TestDetectAuthTypeFromFileSecrets(t *testing.T) {
 		{
 			"gemini with both OAuth and ADC prefers OAuth",
 			"gemini",
-			map[string]struct{}{"OAUTH_CREDS": {}, "GOOGLE_APPLICATION_CREDENTIALS": {}},
+			map[string]struct{}{"GEMINI_OAUTH_CREDS": {}, "GOOGLE_APPLICATION_CREDENTIALS": {}},
 			"auth-file",
 		},
 		{
@@ -529,7 +529,7 @@ func TestDetectAuthTypeFromFileSecrets(t *testing.T) {
 		{
 			"unknown harness",
 			"unknown",
-			map[string]struct{}{"OAUTH_CREDS": {}},
+			map[string]struct{}{"GEMINI_OAUTH_CREDS": {}},
 			"",
 		},
 	}
