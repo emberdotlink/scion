@@ -26,6 +26,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/apiclient"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/transfer"
 )
 
@@ -55,8 +56,11 @@ type AgentService interface {
 	// Restart restarts an agent.
 	Restart(ctx context.Context, agentID string) error
 
-	// SendMessage sends a message to an agent.
+	// SendMessage sends a plain text message to an agent (legacy).
 	SendMessage(ctx context.Context, agentID string, message string, interrupt bool) error
+
+	// SendStructuredMessage sends a structured message to an agent.
+	SendStructuredMessage(ctx context.Context, agentID string, msg *messages.StructuredMessage, interrupt bool) error
 
 	// SubmitEnv submits gathered environment variables for an agent after a 202 env-gather response.
 	SubmitEnv(ctx context.Context, agentID string, req *SubmitEnvRequest) (*CreateAgentResponse, error)
@@ -377,6 +381,22 @@ func (s *agentService) SendMessage(ctx context.Context, agentID string, message 
 	}{
 		Message:   message,
 		Interrupt: interrupt,
+	}
+	resp, err := s.c.transport.Post(ctx, s.agentPath(agentID)+"/message", body, nil)
+	if err != nil {
+		return err
+	}
+	return apiclient.CheckResponse(resp)
+}
+
+// SendStructuredMessage sends a structured message to an agent.
+func (s *agentService) SendStructuredMessage(ctx context.Context, agentID string, msg *messages.StructuredMessage, interrupt bool) error {
+	body := struct {
+		StructuredMessage *messages.StructuredMessage `json:"structured_message"`
+		Interrupt         bool                        `json:"interrupt,omitempty"`
+	}{
+		StructuredMessage: msg,
+		Interrupt:         interrupt,
 	}
 	resp, err := s.c.transport.Post(ctx, s.agentPath(agentID)+"/message", body, nil)
 	if err != nil {

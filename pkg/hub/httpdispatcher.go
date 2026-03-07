@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/secret"
 	"github.com/ptone/scion-agent/pkg/store"
 )
@@ -63,8 +64,8 @@ func (c *HTTPRuntimeBrokerClient) DeleteAgent(ctx context.Context, brokerID, bro
 	return c.transport.DeleteAgent(ctx, brokerID, brokerEndpoint, agentID, deleteFiles, removeBranch, softDelete, deletedAt)
 }
 
-func (c *HTTPRuntimeBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool) error {
-	return c.transport.MessageAgent(ctx, brokerID, brokerEndpoint, agentID, message, interrupt)
+func (c *HTTPRuntimeBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
+	return c.transport.MessageAgent(ctx, brokerID, brokerEndpoint, agentID, message, interrupt, structuredMsg)
 }
 
 // HasPromptResponse is the response from the has-prompt action.
@@ -882,7 +883,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentDelete(ctx context.Context, agent *st
 }
 
 // DispatchAgentMessage sends a message to an agent on the runtime broker.
-func (d *HTTPAgentDispatcher) DispatchAgentMessage(ctx context.Context, agent *store.Agent, message string, interrupt bool) error {
+func (d *HTTPAgentDispatcher) DispatchAgentMessage(ctx context.Context, agent *store.Agent, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
 	if agent.RuntimeBrokerID == "" {
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
@@ -892,7 +893,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentMessage(ctx context.Context, agent *s
 		return err
 	}
 
-	return d.client.MessageAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Slug, message, interrupt)
+	return d.client.MessageAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Slug, message, interrupt, structuredMsg)
 }
 
 // DispatchCheckAgentPrompt checks if an agent has a non-empty prompt.md file.

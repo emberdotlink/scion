@@ -29,6 +29,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/storage"
 	"github.com/ptone/scion-agent/pkg/agent/state"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/store"
 	"github.com/ptone/scion-agent/pkg/store/sqlite"
 	"github.com/ptone/scion-agent/pkg/transfer"
@@ -137,7 +138,7 @@ func (d *mockDispatcher) DispatchAgentRestart(_ context.Context, _ *store.Agent)
 func (d *mockDispatcher) DispatchAgentDelete(_ context.Context, _ *store.Agent, _, _, _ bool, _ time.Time) error {
 	return nil
 }
-func (d *mockDispatcher) DispatchAgentMessage(_ context.Context, _ *store.Agent, _ string, _ bool) error {
+func (d *mockDispatcher) DispatchAgentMessage(_ context.Context, _ *store.Agent, _ string, _ bool, _ *messages.StructuredMessage) error {
 	return nil
 }
 func (d *mockDispatcher) DispatchCheckAgentPrompt(_ context.Context, _ *store.Agent) (bool, error) {

@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/wsprotocol"
 )
 
@@ -159,14 +160,21 @@ func (c *ControlChannelBrokerClient) DeleteAgent(ctx context.Context, brokerID, 
 }
 
 // MessageAgent sends a message to an agent via control channel.
-func (c *ControlChannelBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool) error {
+func (c *ControlChannelBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
 	_ = brokerEndpoint
 	path := fmt.Sprintf("/api/v1/agents/%s/message", url.PathEscape(agentID))
 
-	body, err := json.Marshal(map[string]interface{}{
-		"message":   message,
+	// Build the request body with structured message if available
+	reqBody := map[string]interface{}{
 		"interrupt": interrupt,
-	})
+	}
+	if structuredMsg != nil {
+		reqBody["structured_message"] = structuredMsg
+	} else {
+		reqBody["message"] = message
+	}
+
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -411,11 +419,11 @@ func (c *HybridBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEn
 }
 
 // MessageAgent sends a message to an agent, preferring control channel.
-func (c *HybridBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool) error {
+func (c *HybridBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
 	if c.useControlChannel(brokerID) {
-		return c.controlChannel.MessageAgent(ctx, brokerID, brokerEndpoint, agentID, message, interrupt)
+		return c.controlChannel.MessageAgent(ctx, brokerID, brokerEndpoint, agentID, message, interrupt, structuredMsg)
 	}
-	return c.httpClient.MessageAgent(ctx, brokerID, brokerEndpoint, agentID, message, interrupt)
+	return c.httpClient.MessageAgent(ctx, brokerID, brokerEndpoint, agentID, message, interrupt, structuredMsg)
 }
 
 // CheckAgentPrompt checks if an agent has a non-empty prompt.md file.

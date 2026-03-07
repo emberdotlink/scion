@@ -45,6 +45,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/ent/entc"
 	"github.com/ptone/scion-agent/pkg/harness"
 	"github.com/ptone/scion-agent/pkg/hub"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/ptone/scion-agent/pkg/runtimebroker"
 	"github.com/ptone/scion-agent/pkg/secret"
@@ -1939,8 +1940,13 @@ func buildStoreBrokerProfiles(settings *config.Settings, defaultRuntimeType stri
 
 // DispatchAgentMessage implements hub.AgentDispatcher.
 // It sends a message to an agent on the runtime broker.
-func (d *agentDispatcherAdapter) DispatchAgentMessage(ctx context.Context, hubAgent *store.Agent, message string, interrupt bool) error {
-	if err := d.manager.Message(ctx, hubAgent.Name, message, interrupt); err != nil {
+func (d *agentDispatcherAdapter) DispatchAgentMessage(ctx context.Context, hubAgent *store.Agent, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
+	// When a structured message is provided, format it for delivery
+	deliveryText := message
+	if structuredMsg != nil {
+		deliveryText = messages.FormatForDelivery(structuredMsg)
+	}
+	if err := d.manager.Message(ctx, hubAgent.Name, deliveryText, interrupt); err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 	return nil

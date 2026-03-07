@@ -30,6 +30,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/gcp"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/secret"
 	"github.com/ptone/scion-agent/pkg/storage"
 	"github.com/ptone/scion-agent/pkg/store"
@@ -1481,8 +1482,14 @@ func (s *Server) restoreAgent(w http.ResponseWriter, r *http.Request, id string)
 
 // MessageRequest is the request body for sending a message to an agent.
 type MessageRequest struct {
-	Message   string `json:"message"`
-	Interrupt bool   `json:"interrupt,omitempty"`
+	// Plain text message (legacy field, used for backwards compatibility).
+	Message string `json:"message,omitempty"`
+
+	// Structured message (new field, used by default).
+	StructuredMessage *messages.StructuredMessage `json:"structured_message,omitempty"`
+
+	// Interrupt the harness before sending.
+	Interrupt bool `json:"interrupt,omitempty"`
 }
 
 func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, id string) {
@@ -1494,8 +1501,17 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if req.Message == "" {
-		ValidationError(w, "message is required", nil)
+	// Determine the message content and structured message to forward
+	var plainMessage string
+	var structuredMsg *messages.StructuredMessage
+
+	if req.StructuredMessage != nil {
+		structuredMsg = req.StructuredMessage
+		plainMessage = req.StructuredMessage.Msg
+	} else if req.Message != "" {
+		plainMessage = req.Message
+	} else {
+		ValidationError(w, "message or structured_message is required", nil)
 		return
 	}
 
@@ -1509,9 +1525,27 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
+	// Log the message dispatch
+	logAttrs := []any{
+		"subsystem", "hub.messages",
+		"agentID", agent.ID,
+		"agentName", agent.Name,
+	}
+	if structuredMsg != nil {
+		logAttrs = append(logAttrs,
+			"sender", structuredMsg.Sender,
+			"recipient", structuredMsg.Recipient,
+			"type", structuredMsg.Type,
+			"urgent", structuredMsg.Urgent,
+			"broadcasted", structuredMsg.Broadcasted,
+			"plain", structuredMsg.Plain,
+		)
+	}
+	slog.Info("message dispatched", logAttrs...)
+
 	// If a dispatcher is available, dispatch the message to the runtime broker
 	if dispatcher := s.GetDispatcher(); dispatcher != nil && agent.RuntimeBrokerID != "" {
-		if err := dispatcher.DispatchAgentMessage(ctx, agent, req.Message, req.Interrupt); err != nil {
+		if err := dispatcher.DispatchAgentMessage(ctx, agent, plainMessage, req.Interrupt, structuredMsg); err != nil {
 			RuntimeError(w, "Failed to send message to runtime broker: "+err.Error())
 			return
 		}

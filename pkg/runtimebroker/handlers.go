@@ -31,6 +31,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/gcp"
 	"github.com/ptone/scion-agent/pkg/harness"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/templatecache"
 )
 
@@ -1286,12 +1287,20 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
-	if req.Message == "" {
-		ValidationError(w, "message is required", nil)
+	// Determine the message to deliver
+	var deliveryText string
+	if req.StructuredMessage != nil {
+		// Structured message path: format for harness delivery
+		deliveryText = messages.FormatForDelivery(req.StructuredMessage)
+	} else if req.Message != "" {
+		// Legacy plain-text path
+		deliveryText = req.Message
+	} else {
+		ValidationError(w, "message or structured_message is required", nil)
 		return
 	}
 
-	if err := s.manager.Message(ctx, id, req.Message, req.Interrupt); err != nil {
+	if err := s.manager.Message(ctx, id, deliveryText, req.Interrupt); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			NotFound(w, "Agent")
 			return

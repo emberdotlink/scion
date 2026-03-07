@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +53,8 @@ type sentMessage struct {
 	AgentName string
 	Message   string
 	Interrupt bool
+	// Structured message fields (new)
+	StructuredMsg *messages.StructuredMessage
 }
 
 func newMessageMockHubServer(t *testing.T, groveID string, runningAgents []hubclient.Agent) (*httptest.Server, *[]sentMessage) {
@@ -89,17 +92,26 @@ func newMessageMockHubServer(t *testing.T, groveID string, runningAgents []hubcl
 			}
 
 			var body struct {
-				Message   string `json:"message"`
-				Interrupt bool   `json:"interrupt"`
+				Message           string                     `json:"message"`
+				StructuredMessage *messages.StructuredMessage `json:"structured_message"`
+				Interrupt         bool                       `json:"interrupt"`
 			}
 			json.NewDecoder(r.Body).Decode(&body)
 
+			sm := sentMessage{
+				AgentName:     agentName,
+				Interrupt:     body.Interrupt,
+				StructuredMsg: body.StructuredMessage,
+			}
+			// Extract message text from structured message if present
+			if body.StructuredMessage != nil {
+				sm.Message = body.StructuredMessage.Msg
+			} else {
+				sm.Message = body.Message
+			}
+
 			mu.Lock()
-			sent = append(sent, sentMessage{
-				AgentName: agentName,
-				Message:   body.Message,
-				Interrupt: body.Interrupt,
-			})
+			sent = append(sent, sm)
 			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok"})
@@ -136,6 +148,10 @@ func TestSendMessageViaHub_SingleAgent(t *testing.T) {
 	assert.Equal(t, "my-agent", (*sent)[0].AgentName)
 	assert.Equal(t, "hello world", (*sent)[0].Message)
 	assert.False(t, (*sent)[0].Interrupt)
+	// Verify structured message fields
+	require.NotNil(t, (*sent)[0].StructuredMsg)
+	assert.Equal(t, messages.TypeInstruction, (*sent)[0].StructuredMsg.Type)
+	assert.Equal(t, "agent:my-agent", (*sent)[0].StructuredMsg.Recipient)
 }
 
 func TestSendMessageViaHub_SingleAgentInterrupt(t *testing.T) {
@@ -155,12 +171,20 @@ func TestSendMessageViaHub_SingleAgentInterrupt(t *testing.T) {
 		GroveID:  groveID,
 	}
 
+	// Set interrupt flag for this test
+	origInterrupt := msgInterrupt
+	msgInterrupt = true
+	defer func() { msgInterrupt = origInterrupt }()
+
 	err = sendMessageViaHub(hubCtx, "my-agent", "urgent", true, false, false)
 	require.NoError(t, err)
 
 	require.Len(t, *sent, 1)
 	assert.Equal(t, "my-agent", (*sent)[0].AgentName)
 	assert.True(t, (*sent)[0].Interrupt)
+	// Verify urgent flag is set in structured message
+	require.NotNil(t, (*sent)[0].StructuredMsg)
+	assert.True(t, (*sent)[0].StructuredMsg.Urgent)
 }
 
 func TestSendMessageViaHub_Broadcast(t *testing.T) {
@@ -185,6 +209,11 @@ func TestSendMessageViaHub_Broadcast(t *testing.T) {
 		GroveID:  groveID,
 	}
 
+	// Set broadcast flag for structured message construction
+	origBroadcast := msgBroadcast
+	msgBroadcast = true
+	defer func() { msgBroadcast = origBroadcast }()
+
 	err = sendMessageViaHub(hubCtx, "", "broadcast msg", false, true, false)
 	require.NoError(t, err)
 
@@ -193,6 +222,9 @@ func TestSendMessageViaHub_Broadcast(t *testing.T) {
 	for i, s := range *sent {
 		names[i] = s.AgentName
 		assert.Equal(t, "broadcast msg", s.Message)
+		// Verify broadcast flag in structured message
+		require.NotNil(t, s.StructuredMsg)
+		assert.True(t, s.StructuredMsg.Broadcasted)
 	}
 	assert.ElementsMatch(t, []string{"agent-1", "agent-2", "agent-3"}, names)
 }
@@ -381,12 +413,17 @@ func TestSendMessageViaHub_BroadcastPartialFailure(t *testing.T) {
 			}
 
 			var body struct {
-				Message   string `json:"message"`
-				Interrupt bool   `json:"interrupt"`
+				StructuredMessage *messages.StructuredMessage `json:"structured_message"`
+				Message           string                     `json:"message"`
+				Interrupt         bool                       `json:"interrupt"`
 			}
 			json.NewDecoder(r.Body).Decode(&body)
+			msg := body.Message
+			if body.StructuredMessage != nil {
+				msg = body.StructuredMessage.Msg
+			}
 			mu.Lock()
-			sent = append(sent, sentMessage{AgentName: agentName, Message: body.Message})
+			sent = append(sent, sentMessage{AgentName: agentName, Message: msg})
 			mu.Unlock()
 
 			w.WriteHeader(http.StatusOK)
@@ -413,4 +450,59 @@ func TestSendMessageViaHub_BroadcastPartialFailure(t *testing.T) {
 	// Only the good agent should have received the message
 	assert.Len(t, sent, 1)
 	assert.Equal(t, "good-agent", sent[0].AgentName)
+}
+
+func TestResolveSenderIdentity_AgentContext(t *testing.T) {
+	t.Setenv("SCION_AGENT_NAME", "test-worker")
+	hubCtx := &HubContext{}
+	got := resolveSenderIdentity(hubCtx)
+	assert.Equal(t, "agent:test-worker", got)
+}
+
+func TestResolveSenderIdentity_NoContext(t *testing.T) {
+	t.Setenv("SCION_AGENT_NAME", "")
+
+	// With no Hub auth and no agent env, should fall back to user:unknown
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client, _ := hubclient.New(server.URL)
+	hubCtx := &HubContext{Client: client, Endpoint: server.URL}
+
+	got := resolveSenderIdentity(hubCtx)
+	assert.Equal(t, "user:unknown", got)
+}
+
+func TestBuildStructuredMessage(t *testing.T) {
+	// Save and restore global state
+	origPlain, origInterrupt := msgPlain, msgInterrupt
+	origBroadcast, origAll := msgBroadcast, msgAll
+	origAttach := msgAttach
+	defer func() {
+		msgPlain = origPlain
+		msgInterrupt = origInterrupt
+		msgBroadcast = origBroadcast
+		msgAll = origAll
+		msgAttach = origAttach
+	}()
+
+	msgPlain = false
+	msgInterrupt = true
+	msgBroadcast = true
+	msgAll = false
+	msgAttach = []string{"file1.go", "file2.go"}
+
+	msg := buildStructuredMessage("user:alice", "agent:dev", "do something")
+
+	assert.Equal(t, messages.Version, msg.Version)
+	assert.Equal(t, "user:alice", msg.Sender)
+	assert.Equal(t, "agent:dev", msg.Recipient)
+	assert.Equal(t, "do something", msg.Msg)
+	assert.Equal(t, messages.TypeInstruction, msg.Type)
+	assert.False(t, msg.Plain)
+	assert.True(t, msg.Urgent)
+	assert.True(t, msg.Broadcasted)
+	assert.Equal(t, []string{"file1.go", "file2.go"}, msg.Attachments)
 }

@@ -20,6 +20,7 @@ import (
 	"net/url"
 
 	"github.com/ptone/scion-agent/pkg/apiclient"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/runtimebroker"
 )
 
@@ -46,8 +47,11 @@ type AgentService interface {
 	// Delete removes an agent.
 	Delete(ctx context.Context, agentID string, opts *DeleteAgentOptions) error
 
-	// SendMessage sends a message to an agent.
+	// SendMessage sends a plain text message to an agent (legacy).
 	SendMessage(ctx context.Context, agentID string, message string, interrupt bool) error
+
+	// SendStructuredMessage sends a structured message to an agent.
+	SendStructuredMessage(ctx context.Context, agentID string, msg *messages.StructuredMessage, interrupt bool) error
 
 	// Exec executes a command in an agent container.
 	Exec(ctx context.Context, agentID string, command []string, timeout int) (*runtimebroker.ExecResponse, error)
@@ -183,6 +187,19 @@ func (s *agentService) SendMessage(ctx context.Context, agentID string, message 
 	body := &runtimebroker.MessageRequest{
 		Message:   message,
 		Interrupt: interrupt,
+	}
+	resp, err := s.c.transport.Post(ctx, "/api/v1/agents/"+agentID+"/message", body, nil)
+	if err != nil {
+		return err
+	}
+	return apiclient.CheckResponse(resp)
+}
+
+// SendStructuredMessage sends a structured message to an agent.
+func (s *agentService) SendStructuredMessage(ctx context.Context, agentID string, msg *messages.StructuredMessage, interrupt bool) error {
+	body := &runtimebroker.MessageRequest{
+		StructuredMessage: msg,
+		Interrupt:         interrupt,
 	}
 	resp, err := s.c.transport.Post(ctx, "/api/v1/agents/"+agentID+"/message", body, nil)
 	if err != nil {

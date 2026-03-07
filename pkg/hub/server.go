@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/secret"
 	"github.com/ptone/scion-agent/pkg/storage"
 	"github.com/ptone/scion-agent/pkg/store"
@@ -155,7 +156,8 @@ type AgentDispatcher interface {
 	DispatchAgentDelete(ctx context.Context, agent *store.Agent, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error
 
 	// DispatchAgentMessage sends a message to an agent on the runtime broker.
-	DispatchAgentMessage(ctx context.Context, agent *store.Agent, message string, interrupt bool) error
+	// The structuredMsg parameter is optional; when nil, the plain message string is used.
+	DispatchAgentMessage(ctx context.Context, agent *store.Agent, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error
 
 	// DispatchCheckAgentPrompt checks if an agent has a non-empty prompt.md file.
 	DispatchCheckAgentPrompt(ctx context.Context, agent *store.Agent) (bool, error)
@@ -203,7 +205,8 @@ type RuntimeBrokerClient interface {
 
 	// MessageAgent sends a message to an agent on a remote runtime broker.
 	// brokerID is used for HMAC authentication lookup.
-	MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool) error
+	// structuredMsg is optional; when non-nil it takes precedence over the plain message string.
+	MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error
 
 	// CheckAgentPrompt checks if an agent has a non-empty prompt.md file.
 	// brokerID is used for HMAC authentication lookup.
@@ -1007,7 +1010,7 @@ func (s *Server) messageEventHandler() EventHandler {
 			return fmt.Errorf("no dispatcher available to deliver message")
 		}
 
-		if err := dispatcher.DispatchAgentMessage(ctx, agent, payload.Message, payload.Interrupt); err != nil {
+		if err := dispatcher.DispatchAgentMessage(ctx, agent, payload.Message, payload.Interrupt, nil); err != nil {
 			return fmt.Errorf("failed to dispatch message to agent %s: %w", agent.Name, err)
 		}
 

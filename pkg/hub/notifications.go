@@ -227,7 +227,7 @@ func (nd *NotificationDispatcher) dispatchToAgent(ctx context.Context, sub *stor
 	}
 
 	prefixedMessage := agentNotificationPrefix + notif.Message
-	if err := dispatcher.DispatchAgentMessage(ctx, subscriber, prefixedMessage, false); err != nil {
+	if err := dispatcher.DispatchAgentMessage(ctx, subscriber, prefixedMessage, false, nil); err != nil {
 		nd.log.Error("Failed to dispatch notification to agent",
 			"subscriberID", sub.SubscriberID, "error", err)
 	} else {

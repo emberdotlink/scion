@@ -28,6 +28,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent/state"
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/store"
 	"github.com/ptone/scion-agent/pkg/store/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -777,7 +778,7 @@ func (d *createAgentDispatcher) DispatchAgentDelete(_ context.Context, _ *store.
 	d.deleteCalled = true
 	return d.deleteErr
 }
-func (d *createAgentDispatcher) DispatchAgentMessage(_ context.Context, _ *store.Agent, _ string, _ bool) error {
+func (d *createAgentDispatcher) DispatchAgentMessage(_ context.Context, _ *store.Agent, _ string, _ bool, _ *messages.StructuredMessage) error {
 	return nil
 }
 func (d *createAgentDispatcher) DispatchCheckAgentPrompt(_ context.Context, _ *store.Agent) (bool, error) {

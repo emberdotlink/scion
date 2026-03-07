@@ -20,6 +20,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent/state"
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 )
 
 // ============================================================================
@@ -278,8 +279,14 @@ type FinalizeEnvRequest struct {
 
 // MessageRequest is the request body for sending a message to an agent.
 type MessageRequest struct {
-	Message   string `json:"message"`
-	Interrupt bool   `json:"interrupt,omitempty"`
+	// Plain text message (legacy field, used for backwards compatibility).
+	Message string `json:"message,omitempty"`
+
+	// Structured message (new field, used by default).
+	StructuredMessage *messages.StructuredMessage `json:"structured_message,omitempty"`
+
+	// Interrupt the harness before sending.
+	Interrupt bool `json:"interrupt,omitempty"`
 }
 
 // ExecRequest is the request body for executing a command in an agent.

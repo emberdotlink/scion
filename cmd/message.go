@@ -17,6 +17,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -33,6 +35,8 @@ var msgBroadcast bool
 var msgAll bool
 var msgIn string
 var msgAt string
+var msgPlain bool
+var msgAttach []string
 
 // messageCmd represents the message command
 var messageCmd = &cobra.Command{
@@ -65,6 +69,11 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 			return fmt.Errorf("--in/--at cannot be combined with --broadcast or --all")
 		}
 
+		// Validate attachments
+		if len(msgAttach) > messages.MaxAttachments {
+			return fmt.Errorf("too many attachments: %d (max %d)", len(msgAttach), messages.MaxAttachments)
+		}
+
 		// Check if Hub should be used
 		var hubCtx *HubContext
 		var err error
@@ -94,7 +103,8 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 			return sendMessageViaHub(hubCtx, agentName, message, msgInterrupt, msgBroadcast, msgAll)
 		}
 
-		// Local mode
+		// Local mode — structured messages are only available in Hub mode,
+		// so local mode continues to use plain text delivery.
 		ctx := context.Background()
 
 		effectiveProfile := profile
@@ -173,6 +183,45 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 	},
 }
 
+// resolveSenderIdentity determines the sender identity string for structured messages.
+// In agent context (SCION_AGENT_NAME set), returns "agent:<name>".
+// In user context, queries Hub for the current user and returns "user:<displayName>".
+func resolveSenderIdentity(hubCtx *HubContext) string {
+	// Agent context
+	if agentName := os.Getenv("SCION_AGENT_NAME"); agentName != "" {
+		return "agent:" + agentName
+	}
+
+	// User context — try to resolve from Hub
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, err := hubCtx.Client.Auth().Me(ctx)
+	if err == nil && user != nil {
+		name := user.DisplayName
+		if name == "" {
+			name = user.Email
+		}
+		if name != "" {
+			return "user:" + name
+		}
+	}
+
+	return "user:unknown"
+}
+
+// buildStructuredMessage constructs a StructuredMessage from CLI parameters.
+func buildStructuredMessage(sender, recipient, message string) *messages.StructuredMessage {
+	msg := messages.NewInstruction(sender, recipient, message)
+	msg.Plain = msgPlain
+	msg.Urgent = msgInterrupt
+	msg.Broadcasted = msgBroadcast || msgAll
+	if len(msgAttach) > 0 {
+		msg.Attachments = msgAttach
+	}
+	return msg
+}
+
 func sendMessageViaHub(hubCtx *HubContext, agentName string, message string, interrupt bool, broadcast bool, all bool) error {
 	if !isJSONOutput() {
 		PrintUsingHub(hubCtx.Endpoint)
@@ -218,6 +267,9 @@ func sendMessageViaHub(hubCtx *HubContext, agentName string, message string, int
 		targets = []string{agentName}
 	}
 
+	// Resolve sender identity for structured messages
+	sender := resolveSenderIdentity(hubCtx)
+
 	if len(targets) > 1 {
 		if !isJSONOutput() {
 			fmt.Printf("Broadcasting message to %d agents...\n", len(targets))
@@ -229,7 +281,17 @@ func sendMessageViaHub(hubCtx *HubContext, agentName string, message string, int
 				defer wg.Done()
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				if err := agentSvc.SendMessage(ctx, name, message, interrupt); err != nil {
+
+				// Determine recipient for the broadcast target
+				var recipient string
+				if broadcast {
+					recipient = "agent:" + name
+				} else {
+					recipient = "agent:" + name
+				}
+
+				msg := buildStructuredMessage(sender, recipient, message)
+				if err := agentSvc.SendStructuredMessage(ctx, name, msg, interrupt); err != nil {
 					fmt.Printf("Warning: failed to send message to agent '%s' via Hub: %s\n", name, err)
 					return
 				}
@@ -247,7 +309,8 @@ func sendMessageViaHub(hubCtx *HubContext, agentName string, message string, int
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-			if err := agentSvc.SendMessage(ctx, target, message, interrupt); err != nil {
+			msg := buildStructuredMessage(sender, "agent:"+target, message)
+			if err := agentSvc.SendStructuredMessage(ctx, target, msg, interrupt); err != nil {
 				cancel()
 				if broadcast || all {
 					fmt.Printf("Warning: failed to send message to agent '%s' via Hub: %s\n", target, err)
@@ -310,5 +373,7 @@ func init() {
 	messageCmd.Flags().BoolVarP(&msgAll, "all", "a", false, "Send the message to all running agents across all groves")
 	messageCmd.Flags().StringVar(&msgIn, "in", "", "Schedule message delivery after a duration (e.g. 30m, 1h)")
 	messageCmd.Flags().StringVar(&msgAt, "at", "", "Schedule message delivery at an absolute time (ISO 8601, e.g. 2026-02-28T14:00:00Z)")
+	messageCmd.Flags().BoolVar(&msgPlain, "plain", false, "Mark for plain-text delivery (message still flows as structured JSON internally)")
+	messageCmd.Flags().StringArrayVar(&msgAttach, "attach", nil, "Attach file path(s), repeatable")
 	rootCmd.AddCommand(messageCmd)
 }

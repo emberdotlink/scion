@@ -28,6 +28,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent/state"
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/store"
 	"github.com/ptone/scion-agent/pkg/store/sqlite"
 )
@@ -146,7 +147,7 @@ func (m *mockRuntimeBrokerClient) DeleteAgent(ctx context.Context, brokerID, bro
 	return m.returnErr
 }
 
-func (m *mockRuntimeBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool) error {
+func (m *mockRuntimeBrokerClient) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
 	m.messageCalled = true
 	m.lastBrokerID = brokerID
 	m.lastEndpoint = brokerEndpoint
@@ -339,7 +340,7 @@ func TestHTTPAgentDispatcher_DispatchAgentMessage(t *testing.T) {
 		RuntimeBrokerID: "host-1",
 	}
 
-	err := dispatcher.DispatchAgentMessage(ctx, agent, "Hello, agent!", true)
+	err := dispatcher.DispatchAgentMessage(ctx, agent, "Hello, agent!", true, nil)
 	if err != nil {
 		t.Fatalf("DispatchAgentMessage failed: %v", err)
 	}
@@ -511,7 +512,7 @@ func TestHTTPRuntimeBrokerClient_MessageAgent(t *testing.T) {
 
 	client := NewHTTPRuntimeBrokerClient()
 
-	err := client.MessageAgent(context.Background(), "host-1", server.URL, "test-agent", "Hello!", true)
+	err := client.MessageAgent(context.Background(), "host-1", server.URL, "test-agent", "Hello!", true, nil)
 	if err != nil {
 		t.Fatalf("MessageAgent failed: %v", err)
 	}
@@ -2553,7 +2554,7 @@ func TestHTTPAgentDispatcher_DispatchAgentMessage_UsesSlugNotName(t *testing.T) 
 		RuntimeBrokerID: "host-1",
 	}
 
-	err := dispatcher.DispatchAgentMessage(ctx, agent, "hello", false)
+	err := dispatcher.DispatchAgentMessage(ctx, agent, "hello", false, nil)
 	if err != nil {
 		t.Fatalf("DispatchAgentMessage failed: %v", err)
 	}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent/state"
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/store"
 	"github.com/ptone/scion-agent/pkg/store/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,7 @@ type dispatchCall struct {
 	Interrupt bool
 }
 
-func (d *recordingDispatcher) DispatchAgentMessage(_ context.Context, agent *store.Agent, message string, interrupt bool) error {
+func (d *recordingDispatcher) DispatchAgentMessage(_ context.Context, agent *store.Agent, message string, interrupt bool, _ *messages.StructuredMessage) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls = append(d.calls, dispatchCall{Agent: agent, Message: message, Interrupt: interrupt})

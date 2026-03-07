@@ -28,6 +28,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/apiclient"
+	"github.com/ptone/scion-agent/pkg/messages"
 	"github.com/ptone/scion-agent/pkg/store"
 )
 
@@ -250,12 +251,20 @@ func (t *brokerHTTPTransport) DeleteAgent(ctx context.Context, brokerID, brokerE
 	return nil
 }
 
-func (t *brokerHTTPTransport) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool) error {
+func (t *brokerHTTPTransport) MessageAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, message string, interrupt bool, structuredMsg *messages.StructuredMessage) error {
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/message", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID))
-	body, err := json.Marshal(map[string]interface{}{
-		"message":   message,
+
+	// Build the request body with structured message if available
+	reqBody := map[string]interface{}{
 		"interrupt": interrupt,
-	})
+	}
+	if structuredMsg != nil {
+		reqBody["structured_message"] = structuredMsg
+	} else {
+		reqBody["message"] = message
+	}
+
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
