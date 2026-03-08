@@ -349,7 +349,7 @@ export class ScionAgentMessageViewer extends LitElement {
       }
 
       const data = (await res.json()) as MessageLogsResponse;
-      this.mergeEntries(data.entries);
+      this.mergeEntries(data.entries || []);
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Failed to fetch messages';
     } finally {
