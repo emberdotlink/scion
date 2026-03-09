@@ -303,7 +303,9 @@ function renderRoute(path: string): void {
   const appContainer = document.getElementById('app');
   if (!appContainer) return;
 
-  const tag = resolveRoute(path);
+  // Strip query string and hash for route matching
+  const pathname = path.split('?')[0].split('#')[0];
+  const tag = resolveRoute(pathname);
 
   // Build page data with current user context for page components.
   // Include SSR-prefetched data on the initial render so page components
