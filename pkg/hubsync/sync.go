@@ -228,18 +228,30 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 
 	// Hub is enabled - from here on, any failure is an error (no silent fallback)
 	endpoint := getEndpoint(settings)
+	// In hub context, settings loading may not pick up the env var (e.g. if the
+	// grove path resolves to a synthetic or tmpfs directory without a settings file
+	// and koanf doesn't populate the pointer struct). Fall back to the env var.
+	if endpoint == "" && hubContext {
+		endpoint = os.Getenv("SCION_HUB_ENDPOINT")
+		if endpoint == "" {
+			endpoint = os.Getenv("SCION_HUB_URL")
+		}
+	}
 	if endpoint == "" {
 		return nil, wrapHubError(fmt.Errorf("Hub is enabled but no endpoint configured.\n\nConfigure via: scion config set hub.endpoint <url>"))
 	}
 
 	// Ensure grove_id exists
 	groveID := settings.GroveID
+	// In hub context, also check SCION_GROVE_ID env var directly
+	if groveID == "" && hubContext {
+		groveID = os.Getenv("SCION_GROVE_ID")
+	}
 	if groveID == "" {
 		if hubContext {
 			// Inside a container without SCION_GROVE_ID — we can't generate
-			// and persist a grove ID. Use a placeholder so the Hub client
-			// can still be constructed, but grove-scoped operations will
-			// not work without a real grove ID.
+			// and persist a grove ID. The Hub client can still be constructed
+			// for cross-grove operations like list --all.
 			debugf("hub context without grove_id — grove-scoped operations may fail")
 		} else {
 			// Generate grove_id for groves that don't have one

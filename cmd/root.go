@@ -205,7 +205,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug output (equivalent to SCION_DEBUG=1)")
 }
 
-// GetHubEndpoint returns the effective Hub endpoint based on flags and settings.
+// GetHubEndpoint returns the effective Hub endpoint based on flags, settings,
+// and environment variables.
 // Returns empty string if Hub is disabled or not configured.
 func GetHubEndpoint(settings interface{ GetHubEndpoint() string }) string {
 	if noHub {
@@ -215,7 +216,18 @@ func GetHubEndpoint(settings interface{ GetHubEndpoint() string }) string {
 		return hubEndpoint
 	}
 	if settings != nil {
-		return settings.GetHubEndpoint()
+		if ep := settings.GetHubEndpoint(); ep != "" {
+			return ep
+		}
+	}
+	// Fall back to env vars — covers the case where settings loading didn't
+	// populate the Hub struct (e.g., inside a hub-connected container where
+	// the grove path resolves to a synthetic/empty directory).
+	if ep := os.Getenv("SCION_HUB_ENDPOINT"); ep != "" {
+		return ep
+	}
+	if ep := os.Getenv("SCION_HUB_URL"); ep != "" {
+		return ep
 	}
 	return ""
 }

@@ -264,11 +264,13 @@ func CheckHubAvailabilitySimple(grovePath string) (*HubContext, error) {
 
 	// Check if hub is explicitly enabled via settings OR if we're inside
 	// a hub-connected container (env vars like SCION_HUB_ENDPOINT are set).
-	if !settings.IsHubEnabled() && !config.IsHubContext() {
+	hubContext := config.IsHubContext()
+	if !settings.IsHubEnabled() && !hubContext {
 		return nil, nil
 	}
 
 	// Hub is enabled - from here on, any failure is an error (no silent fallback)
+	// GetHubEndpoint checks CLI flags, settings, and env vars (SCION_HUB_ENDPOINT).
 	endpoint := GetHubEndpoint(settings)
 	if endpoint == "" {
 		return nil, wrapHubError(fmt.Errorf("Hub is enabled but no endpoint configured.\n\nConfigure via: scion config set hub.endpoint <url>"))
@@ -288,11 +290,16 @@ func CheckHubAvailabilitySimple(grovePath string) (*HubContext, error) {
 		return nil, wrapHubError(fmt.Errorf("Hub at %s is not responding: %w", endpoint, err))
 	}
 
+	groveID := settings.GroveID
+	if groveID == "" && hubContext {
+		groveID = os.Getenv("SCION_GROVE_ID")
+	}
+
 	return &HubContext{
 		Client:   client,
 		Endpoint: endpoint,
 		Settings: settings,
-		GroveID:  settings.GroveID,
+		GroveID:  groveID,
 	}, nil
 }
 
