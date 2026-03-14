@@ -2791,6 +2791,12 @@ func (s *Server) handleGroveRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for nested /sync-templates path
+	if subPath == "sync-templates" {
+		s.handleGroveSyncTemplates(w, r, groveID)
+		return
+	}
+
 	// Check for nested /workspace/archive path (download workspace as zip)
 	if subPath == "workspace/archive" {
 		s.handleGroveWorkspaceArchive(w, r, groveID)
@@ -6873,5 +6879,138 @@ func (s *Server) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, PublicSettingsResponse{
 		TelemetryEnabled: enabled,
+	})
+}
+
+// ============================================================================
+// Grove Template Sync
+// ============================================================================
+
+// SyncTemplatesResponse is returned when a template sync agent is dispatched.
+type SyncTemplatesResponse struct {
+	AgentID string `json:"agentId"`
+	Status  string `json:"status"`
+}
+
+// handleGroveSyncTemplates dispatches an agent to synchronize templates for a grove.
+func (s *Server) handleGroveSyncTemplates(w http.ResponseWriter, r *http.Request, groveID string) {
+	if r.Method != http.MethodPost {
+		MethodNotAllowed(w)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Authorize the caller
+	var createdBy string
+	if agentIdent := GetAgentIdentityFromContext(ctx); agentIdent != nil {
+		if !agentIdent.HasScope(ScopeAgentCreate) {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden, "Missing required scope: grove:agent:create", nil)
+			return
+		}
+		if groveID != agentIdent.GroveID() {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden, "Agents can only sync templates within their own grove", nil)
+			return
+		}
+		createdBy = agentIdent.ID()
+	} else if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
+		decision := s.authzService.CheckAccess(ctx, userIdent, Resource{
+			Type:       "agent",
+			ParentType: "grove",
+			ParentID:   groveID,
+		}, ActionCreate)
+		if !decision.Allowed {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden,
+				"You don't have permission to sync templates in this grove", nil)
+			return
+		}
+		createdBy = userIdent.ID()
+	} else {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required", nil)
+		return
+	}
+
+	// Verify grove exists
+	grove, err := s.store.GetGrove(ctx, groveID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			NotFound(w, "Grove")
+			return
+		}
+		writeErrorFromErr(w, err, "")
+		return
+	}
+
+	// Resolve a runtime broker (use grove default)
+	runtimeBrokerID, err := s.resolveRuntimeBroker(ctx, w, "", grove)
+	if err != nil {
+		// Error response already written by resolveRuntimeBroker
+		return
+	}
+
+	// Check broker dispatch access
+	if runtimeBrokerID != "" {
+		if !s.checkBrokerDispatchAccess(ctx, w, runtimeBrokerID) {
+			return
+		}
+	}
+
+	// Build agent name with timestamp
+	agentName := fmt.Sprintf("template-sync-%d", time.Now().Unix())
+	slug, err := api.ValidateAgentName(agentName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_name", err.Error(), nil)
+		return
+	}
+
+	agent := &store.Agent{
+		ID:              api.NewUUID(),
+		Slug:            slug,
+		Name:            slug,
+		GroveID:         groveID,
+		RuntimeBrokerID: runtimeBrokerID,
+		Phase:           string(state.PhaseCreated),
+		Labels: map[string]string{
+			"scion.dev/purpose": "template-sync",
+		},
+		Visibility: store.VisibilityPrivate,
+		CreatedBy:  createdBy,
+		OwnerID:    createdBy,
+		Detached:   true,
+		AppliedConfig: &store.AgentAppliedConfig{
+			HarnessConfig: "generic",
+			Task:          "scion templates sync --all --force",
+		},
+	}
+
+	if err := s.store.CreateAgent(ctx, agent); err != nil {
+		writeErrorFromErr(w, err, "")
+		return
+	}
+
+	// Dispatch to runtime broker
+	if dispatcher := s.GetDispatcher(); dispatcher != nil {
+		if err := dispatcher.DispatchAgentCreate(ctx, agent); err != nil {
+			// Clean up on dispatch failure
+			s.agentLifecycleLog.Warn("Failed to dispatch template-sync agent", "error", err, "agent", agent.ID)
+			_ = dispatcher.DispatchAgentDelete(ctx, agent, true, true, false, time.Time{})
+			_ = s.store.DeleteAgent(ctx, agent.ID)
+			RuntimeError(w, "Failed to dispatch template sync agent: "+err.Error())
+			return
+		}
+		agent.Phase = string(state.PhaseProvisioning)
+		if err := s.store.UpdateAgent(ctx, agent); err != nil {
+			s.agentLifecycleLog.Warn("Failed to update template-sync agent phase", "error", err)
+		}
+	}
+
+	s.events.PublishAgentCreated(ctx, agent)
+
+	s.agentLifecycleLog.Info("Template sync agent dispatched",
+		"agent", agent.ID, "grove", groveID, "broker", runtimeBrokerID)
+
+	writeJSON(w, http.StatusOK, SyncTemplatesResponse{
+		AgentID: agent.ID,
+		Status:  "syncing",
 	})
 }
