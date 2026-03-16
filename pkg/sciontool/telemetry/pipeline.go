@@ -227,9 +227,10 @@ func (p *Pipeline) handleMetrics(ctx context.Context, resourceMetrics []*metricp
 		return nil
 	}
 
-	// Forward to cloud exporter if available. Note: in GCP-native mode,
-	// ExportProtoMetrics is a no-op — metrics reach GCP directly via
-	// each agent's Cloud Monitoring exporter, not through the pipeline.
+	// Forward to cloud exporter if available. In GCP-native mode, OTLP metrics
+	// received by this pipeline are converted and forwarded to Cloud Monitoring.
+	// Sciontool's own SDK metrics may still bypass the pipeline and export
+	// directly via a MeterProvider.
 	if p.exporter != nil {
 		if err := p.exporter.ExportProtoMetrics(ctx, resourceMetrics); err != nil {
 			log.Error("Failed to export metrics to cloud: %v", err)

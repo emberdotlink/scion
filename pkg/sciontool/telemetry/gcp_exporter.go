@@ -6,11 +6,16 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	"cloud.google.com/go/logging"
+	mexporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric"
 	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
+	"github.com/GoogleCloudPlatform/scion/pkg/sciontool/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
@@ -22,13 +27,15 @@ import (
 // It uses Cloud Trace for spans and Cloud Logging for logs.
 // Metrics are forwarded via the SDK metric exporter (see providers.go).
 type GCPExporter struct {
-	traceExporter trace.SpanExporter
-	logClient     *logging.Client
-	logger        *logging.Logger
-	projectID     string
+	traceExporter  trace.SpanExporter
+	metricExporter sdkmetric.Exporter
+	logClient      *logging.Client
+	logger         *logging.Logger
+	projectID      string
+	metricsDebug   bool
 }
 
-// NewGCPExporter creates a new GCP-native exporter for traces and logs.
+// NewGCPExporter creates a new GCP-native exporter for traces, metrics, and logs.
 func NewGCPExporter(config *Config) (*GCPExporter, error) {
 	ctx := context.Background()
 
@@ -60,6 +67,23 @@ func NewGCPExporter(config *Config) (*GCPExporter, error) {
 		return nil, fmt.Errorf("creating Cloud Logging client: %w", err)
 	}
 
+	metricOpts := []mexporter.Option{
+		mexporter.WithProjectID(config.ProjectID),
+	}
+	if len(opts) > 0 {
+		metricOpts = append(metricOpts, mexporter.WithMonitoringClientOptions(opts...))
+	}
+	metricExp, err := mexporter.New(metricOpts...)
+	if err != nil {
+		_ = traceExp.Shutdown(ctx)
+		_ = logClient.Close()
+		return nil, fmt.Errorf("creating Cloud Monitoring metric exporter: %w", err)
+	}
+	var metricExporter sdkmetric.Exporter = metricExp
+	if config.MetricsDebug {
+		metricExporter = newDebugMetricExporter(metricExporter)
+	}
+
 	// Build common labels for agent identification
 	commonLabels := map[string]string{}
 	if agentID := os.Getenv("SCION_AGENT_ID"); agentID != "" {
@@ -75,10 +99,12 @@ func NewGCPExporter(config *Config) (*GCPExporter, error) {
 	}
 
 	return &GCPExporter{
-		traceExporter: traceExp,
-		logClient:     logClient,
-		logger:        logClient.Logger("scion-agents", loggerOpts...),
-		projectID:     config.ProjectID,
+		traceExporter:  traceExp,
+		metricExporter: metricExporter,
+		logClient:      logClient,
+		logger:         logClient.Logger("scion-agents", loggerOpts...),
+		projectID:      config.ProjectID,
+		metricsDebug:   config.MetricsDebug,
 	}, nil
 }
 
@@ -97,14 +123,31 @@ func (e *GCPExporter) ExportProtoSpans(ctx context.Context, resourceSpans []*tra
 	return e.traceExporter.ExportSpans(ctx, sdkSpans)
 }
 
-// ExportProtoMetrics is a no-op for the GCP exporter.
+// ExportProtoMetrics converts OTLP proto metrics to SDK metricdata and exports
+// them via the Cloud Monitoring exporter.
 //
-// In GCP-native mode, metrics are exported directly by each agent's SDK
-// MeterProvider via the Cloud Monitoring exporter (configured in providers.go).
-// Pipeline-received OTLP proto metrics are dropped here since they cannot be
-// converted to the SDK metricdata types required by the Cloud Monitoring API.
+// This is primarily used for harnesses that emit native OTLP metrics to the
+// local sciontool receiver. Sciontool's own normalized SDK metrics may still be
+// exported directly by a MeterProvider configured in providers.go.
 func (e *GCPExporter) ExportProtoMetrics(ctx context.Context, resourceMetrics []*metricpb.ResourceMetrics) error {
-	return nil
+	if e == nil || e.metricExporter == nil {
+		return nil
+	}
+
+	sdkMetrics := protoResourceMetricsToSDK(resourceMetrics)
+	var errs []error
+
+	for i := range sdkMetrics {
+		filtered := filterGCPMetricdata(&sdkMetrics[i], e.metricsDebug)
+		if filtered == nil {
+			continue
+		}
+		if err := e.metricExporter.Export(ctx, filtered); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // ExportProtoLogs converts OTLP proto log records to Cloud Logging entries.
@@ -139,6 +182,12 @@ func (e *GCPExporter) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	if e.metricExporter != nil {
+		if err := e.metricExporter.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("metric exporter shutdown: %w", err))
+		}
+	}
+
 	if e.logClient != nil {
 		if err := e.logClient.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("log client close: %w", err))
@@ -149,4 +198,50 @@ func (e *GCPExporter) Shutdown(ctx context.Context) error {
 		return errs[0]
 	}
 	return nil
+}
+
+func filterGCPMetricdata(rm *metricdata.ResourceMetrics, metricsDebug bool) *metricdata.ResourceMetrics {
+	if rm == nil {
+		return nil
+	}
+
+	filtered := &metricdata.ResourceMetrics{
+		Resource: rm.Resource,
+	}
+
+	for _, sm := range rm.ScopeMetrics {
+		scopeMetrics := metricdata.ScopeMetrics{Scope: sm.Scope}
+		for _, metric := range sm.Metrics {
+			if isGCPMetricAggregationSupported(metric.Data) {
+				scopeMetrics.Metrics = append(scopeMetrics.Metrics, metric)
+				continue
+			}
+			if metricsDebug {
+				log.TaggedInfo("metrics", "dropping unsupported GCP metric %s of type %T", metric.Name, metric.Data)
+			}
+		}
+		if len(scopeMetrics.Metrics) > 0 {
+			filtered.ScopeMetrics = append(filtered.ScopeMetrics, scopeMetrics)
+		}
+	}
+
+	if len(filtered.ScopeMetrics) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+func isGCPMetricAggregationSupported(agg metricdata.Aggregation) bool {
+	switch agg.(type) {
+	case metricdata.Gauge[int64], metricdata.Gauge[float64]:
+		return true
+	case metricdata.Sum[int64], metricdata.Sum[float64]:
+		return true
+	case metricdata.Histogram[int64], metricdata.Histogram[float64]:
+		return true
+	case metricdata.ExponentialHistogram[int64], metricdata.ExponentialHistogram[float64]:
+		return true
+	default:
+		return false
+	}
 }
