@@ -2,6 +2,65 @@
 title: Release Notes
 ---
 
+## Mar 15, 2026
+
+This release significantly hardens the agent workspace provisioning process for Hub-linked environments, introduces interactive terminal toolbar toggles for the web UI, and improves overall deterministic Grove ID generation and management.
+
+### 🚀 Features
+* **Hub-Linked Workspace Provisioning:** Transitioned hub-linked groves to strictly use a robust `git init` + `git fetch` strategy instead of standard cloning or local worktrees. This allows provisioning into workspaces that already contain `.scion` metadata or `.scion-volumes` directories while properly clearing out stale artifacts before initialization (consolidated from commits 3852e6a, 51be1e6, 118b518, 2f6b877, 2f59410, 4497a86, 6cc4487).
+* **Terminal Toolbar Enhancements:** Added web toolbar toggles for managing tmux windows (seamlessly switching between agent and shell) and controlling mouse/clipboard behavior. Also fixed mouse-drag text selection and improved the robustness of the window controls using direct tmux key bindings (consolidated from commits 8c07a48, b83ba8c, 8027407, 6140111).
+* **Deterministic Grove ID & Synchronization:** Enhanced deterministic Grove ID generation during hub-link sync. Git URL user info is now cleanly normalized to ensure UUID v5 grove IDs match regardless of the protocol (e.g., `https://` vs `git@`), and stale grove links are automatically detected and synchronized (consolidated from commits 6a52952, 1bfa95d, ed2b2c5).
+* **Template Sync Improvements:** Enabled the template sync command to update existing templates without requiring the `--force` flag. Local templates now automatically sync on hub startup and intelligently bypass cache when running in co-located (hub-broker combo) mode (consolidated from commits ff14bd9, e0cf52d).
+* **Web UI Flow & Performance:** Introduced route-based code splitting to significantly reduce the web bundle size. Additionally, refined the grove settings page by adding a "Done" button, hiding unnecessary registration options for git-backed groves, and introducing a confirmation dialog when creating a grove for an existing git repository (consolidated from commits 62e3e36, bd9f40e, b6d2afe, f715bf0).
+
+### 🐛 Fixes
+* **Grove Deletion Cleanup:** Fixed an issue where environment variables, secrets, and harness configs were left orphaned; the system now performs a proper cascade delete when a grove is removed (commit 834bae9).
+* **Agent Path & Directory Routing:** Corrected the routing of agent directories for git-backed groves to correctly use the grove-specific path instead of the global directory. Also properly resolved shared directory mount paths for git-based workspaces (consolidated from commits e38cf92, fbb9056).
+* **Hub Unlinking & Local State:** Fixed a bug where the hub status erroneously showed "linked" after unlinking by verifying the local enabled state instead of mutating the global `grove_id`. The provider's `localPath` is also now properly preserved when re-registering an existing grove (consolidated from commits 0857553, 54fe4b8, 4db9253, d4828f1).
+* **Agent Container Lifecycle:** Ensured that the agent container stops correctly and cleanly when the underlying agent process exits within the tmux session (commit 535ebbd).
+* **Configuration & Path Resolution:** Fixed resolution logic for split-storage paths when writing grove settings, and ensured `git check-ignore` runs from the repository root so that broker `.gitignore` checks function correctly (consolidated from commits 7a4cd3c, f934b9a).
+* **Web Assets & UI Styling:** Restored dark mode logic for Shoelace form components after implementing code splitting, and fixed the serving of root-level public assets (like the notification icon) from the Go backend (consolidated from commits ca1343f, b3d9484).
+* **Network & Harness Config:** Preserved the hub port when applying container bridge endpoint overrides, and returned a synthetic harness config for "generic" agents to unblock template synchronization (consolidated from commits ff1635d, 713c3ab).
+
+## Mar 14, 2026
+
+This release introduces the foundational infrastructure for the Scion plugin system, adds comprehensive support for syncing grove-level templates, and unifies all Grove IDs to a standard UUID format.
+
+### ⚠️ BREAKING CHANGES
+* **Grove ID Format Unification:** All Grove IDs have been standardized to a unified UUID format. Git-backed groves now use a deterministic UUID v5 (based on the namespace and normalized URL) instead of a 16-character hex hash, while non-git and hub-native groves continue using UUID v4. Existing git-backed groves may need to be re-linked, and any integrations relying on the old hex format must be updated (commit e896693).
+
+### 🚀 Features
+* **Plugin System Infrastructure:** Introduced the core architecture for a new Scion plugin system using `hashicorp/go-plugin`, complete with reference implementations for message broker and agent harness plugins (consolidated from commits 6c543d0, b1a5ae1, 22991ec).
+* **Grove Template Sync & Management:** Implemented capabilities for syncing grove-level templates with the Hub. This includes new API endpoints (`POST /api/v1/groves/{groveId}/sync-templates`), CLI commands (`scion templates sync --all`, `scion templates status`), and a dedicated Web UI for managing synced templates. Additionally, machine-specific settings for git-backed groves are now externalized, while templates remain in-repo to support version control (consolidated from commits d0507b1, 3c9cb4b, 0cf62d7, ef4f208, 56df5b4).
+* **CLI Navigation Commands:** Added `config dir`, `cd-config`, and `cd-grove` commands to simplify locating and navigating to configuration and workspace directories (commit 596295d).
+
+### 🐛 Fixes
+* **Agent Git Cloning:** Resolved an issue where git clones would hang indefinitely when authentication was required but no token was present. Added proper error state reporting upon clone failures, and corrected the `agent-info.json` path to correctly use the `scion` user's home directory (consolidated from commits 93dfdcd, 7ec5eb2).
+* **Image Builds:** Fixed the Google Cloud SDK installation in the build environment by explicitly using `apt-get` (commit d76197c).
+
+## Mar 13, 2026
+
+This release focuses on improving agent specialization with harness skills, resolving critical routing and identification issues in multi-hub and linked git environments, and adding a new satellite service for documentation agents.
+
+### ⚠️ BREAKING CHANGES
+* **Linked Git Grove IDs:** Linked groves backed by a git remote now use deterministic 16-character hex hash IDs (e.g., generated via `HashGroveID()`) instead of the raw, normalized git URL. This resolves severe web routing and API path parsing issues caused by slashes in the URL. If you had existing linked groves, they may need to be re-linked, and any scripts relying on the raw git URL as the Grove ID will need to be updated (commit 05e0c7a).
+
+### 🚀 Features
+* **Harness Skills for Templates:** Implemented robust support for harness skills within agent templates. Skills defined in `harness-configs` and templates are now automatically merged and mounted into the appropriate harness-specific directory (e.g., `.claude/skills`, `.gemini/skills`) during agent provisioning (consolidated from commits efefc44, 2a086ac, 5b54c66).
+* **Docs-Agent Satellite Service:** Introduced a new `docs-agent` satellite service to provide dedicated documentation capabilities alongside agent workflows (consolidated from commits 092ffde, 58f21c2, fd1b1e2).
+* **Shared Directory Management UI:** Added web UI support for managing and viewing grove shared directories (commit 7d7acfb).
+* **Terminal & UX Enhancements:** Enabled tmux mouse mode by default for better terminal interactivity and introduced a custom Scion bell icon for browser notifications (commits c915da9, 343382e).
+
+### 🐛 Fixes
+* **Multi-Hub Routing & Dispatch:**
+    * Resolved an issue where brokers connected to multiple hubs would route agents to the wrong local hub endpoint by correctly resolving the endpoint from the control channel connection header.
+    * Enabled control-channel-only brokers to successfully dispatch agent operations (consolidated from commits dd5581f, 1bdc31d).
+* **Agent Creation Context:**
+    * Ensured grove shared directories are properly passed from the hub to the broker during agent creation.
+    * Fixed an issue where `agentDir` was omitted during harness provisioning and setting overlays (consolidated from commits a5cac3b, c550865).
+* **Documentation & Web Hosting:** Corrected site base URLs, configured Astro for GitHub Pages deployment, fixed markdown links to use relative paths, and updated the README to point to the rendered site (consolidated from commits 35eee03, 8ca4a96, a7dc580, e133647, 2467d89).
+* **Maintenance:** Internal refactoring analysis for `server.go` and documentation updates for recent feature releases (commits d3484d4, 33ee10e).
+
 ## Mar 12, 2026
 
 This release focuses on enhancing persistent storage and system observability. It introduces **Grove Shared Directories**, enabling agents within a grove to share and persist mutable state via the filesystem (with native Kubernetes support). Additionally, the metrics pipeline has been significantly enriched with labels for harness type, model, and grove ID, providing deeper insights into agent performance and costs.
