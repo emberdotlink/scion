@@ -1,6 +1,6 @@
 # GCP Identity Web UI & Agent Assignment Integration
 
-## Status: In Progress
+## Status: Complete
 
 ## Context
 
@@ -17,7 +17,7 @@ This document covers the remaining work to complete GCP identity support in Scio
 Two items remain from the Phase 2 roadmap:
 
 1. ~~**Backend gap**: GCP identity assignment during agent creation is not wired through the Hub API~~ **COMPLETE**
-2. **Web UI**: Service account management and agent identity assignment via the web interface
+2. ~~**Web UI**: Service account management and agent identity assignment via the web interface~~ **COMPLETE**
 
 ## 1. Backend Gap: Agent Creation GCP Identity Assignment ✅ Complete
 
