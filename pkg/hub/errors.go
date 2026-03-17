@@ -71,9 +71,11 @@ const (
 // writeError writes a JSON error response.
 // For 5xx errors, it logs the error details for debugging.
 func writeError(w http.ResponseWriter, statusCode int, code, message string, details map[string]interface{}) {
-	// Log 5xx errors for debugging
+	// Log 5xx errors at ERROR level, 4xx at DEBUG level for diagnostics
 	if statusCode >= 500 {
 		slog.Error("API Error", "status", statusCode, "code", code, "message", message)
+	} else if statusCode >= 400 {
+		slog.Debug("API client error", "status", statusCode, "code", code, "message", message)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -123,9 +125,16 @@ func writeErrorFromErr(w http.ResponseWriter, err error, requestID string) {
 		message = "Internal server error"
 	}
 
-	// Log 5xx errors with the underlying error for debugging
+	// Log 5xx errors with the underlying error for debugging, 4xx at DEBUG
 	if statusCode >= 500 {
 		slog.Error("API Error from Go error",
+			"status", statusCode,
+			"code", code,
+			"requestID", requestID,
+			"error", err,
+		)
+	} else if statusCode >= 400 {
+		slog.Debug("API client error from Go error",
 			"status", statusCode,
 			"code", code,
 			"requestID", requestID,

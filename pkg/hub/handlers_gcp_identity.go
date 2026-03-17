@@ -17,6 +17,8 @@ package hub
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -82,12 +84,30 @@ func (s *Server) createGCPServiceAccount(w http.ResponseWriter, r *http.Request,
 
 	var req createGCPServiceAccountRequest
 	if err := readJSON(r, &req); err != nil {
+		slog.Debug("GCP SA create: failed to parse request body",
+			"grove_id", groveID,
+			"error", err,
+			"content_type", r.Header.Get("Content-Type"),
+		)
 		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request body: "+err.Error(), nil)
 		return
 	}
 
 	if req.Email == "" || req.ProjectID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "email and project_id are required", nil)
+		slog.Debug("GCP SA create: missing required fields",
+			"grove_id", groveID,
+			"has_email", req.Email != "",
+			"has_project_id", req.ProjectID != "",
+		)
+		missing := []string{}
+		if req.Email == "" {
+			missing = append(missing, "email")
+		}
+		if req.ProjectID == "" {
+			missing = append(missing, "project_id")
+		}
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest,
+			fmt.Sprintf("missing required field(s): %s", strings.Join(missing, ", ")), nil)
 		return
 	}
 

@@ -105,6 +105,21 @@ func doRequestNoAuth(t *testing.T, srv *Server, method, path string, body interf
 	return rec
 }
 
+// doRequestRaw performs an HTTP request with raw bytes as the body.
+// Useful for testing malformed request bodies.
+func doRequestRaw(t *testing.T, srv *Server, method, path string, body []byte, contentType string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
 // ============================================================================
 // Health Endpoint Tests
 // ============================================================================
