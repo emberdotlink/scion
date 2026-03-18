@@ -2338,19 +2338,82 @@ func (s *Server) createGroveGroup(ctx context.Context, grove *store.Grove) {
 			slog.Warn("failed to create grove group", "grove", grove.ID, "error", err)
 			return
 		}
-		// Group already exists — look it up and update its grove ID association
+		// Constraint conflict — look it up by slug
 		existing, lookupErr := s.store.GetGroupBySlug(ctx, agentsSlug)
 		if lookupErr != nil {
-			slog.Warn("failed to look up existing grove agents group",
-				"grove", grove.ID, "slug", agentsSlug, "error", lookupErr)
-			return
+			// Slug not found — constraint conflict is likely on grove_id
+			// (unique constraint from previous O2O ent schema). Find the
+			// phantom group and repurpose it.
+			existing = s.findOrCreateGroupForGrove(ctx, grove, agentsSlug,
+				grove.Name+" Agents", store.GroupTypeGroveAgents)
+			if existing == nil {
+				return
+			}
 		}
-		existing.GroveID = grove.ID
-		if updateErr := s.store.UpdateGroup(ctx, existing); updateErr != nil {
-			slog.Warn("failed to update existing grove agents group",
-				"grove", grove.ID, "slug", agentsSlug, "error", updateErr)
+		if existing.GroveID != grove.ID {
+			existing.GroveID = grove.ID
+			if updateErr := s.store.UpdateGroup(ctx, existing); updateErr != nil {
+				slog.Warn("failed to update existing grove agents group",
+					"grove", grove.ID, "slug", agentsSlug, "error", updateErr)
+			}
 		}
 	}
+}
+
+// findOrCreateGroupForGrove handles the case where CreateGroup fails with
+// ErrAlreadyExists but the slug doesn't exist. This indicates a unique
+// constraint on grove_id (from a previous O2O ent schema). It finds the
+// existing phantom group via grove_id, updates its slug/name/type to match
+// what we need, and returns it. If no phantom group is found, it creates
+// the group without grove_id as a fallback. Returns nil on failure.
+func (s *Server) findOrCreateGroupForGrove(ctx context.Context, grove *store.Grove, slug, name, groupType string) *store.Group {
+	// Look for any existing group with this grove_id
+	result, err := s.store.ListGroups(ctx, store.GroupFilter{
+		GroveID: grove.ID,
+	}, store.ListOptions{Limit: 10})
+	if err == nil && result.TotalCount > 0 {
+		// Found existing group(s) with this grove_id. Look for one matching
+		// the desired type, or take the first one and repurpose it.
+		for _, g := range result.Items {
+			if g.GroupType == groupType {
+				slog.Info("found existing group by grove_id with matching type",
+					"grove", grove.ID, "group", g.ID, "slug", g.Slug, "type", groupType)
+				return &g
+			}
+		}
+		// No type match — update the slug of the first match
+		phantom := &result.Items[0]
+		slog.Info("repurposing phantom group found by grove_id",
+			"grove", grove.ID, "group", phantom.ID,
+			"oldSlug", phantom.Slug, "newSlug", slug, "type", groupType)
+		phantom.Slug = slug
+		phantom.Name = name
+		phantom.GroupType = groupType
+		if updateErr := s.store.UpdateGroup(ctx, phantom); updateErr != nil {
+			slog.Warn("failed to repurpose phantom group",
+				"grove", grove.ID, "group", phantom.ID, "error", updateErr)
+		}
+		return phantom
+	}
+
+	// No group found by grove_id — create without grove_id as fallback
+	slog.Warn("no phantom group found by grove_id — creating without grove_id",
+		"grove", grove.ID, "slug", slug)
+	newGroup := &store.Group{
+		ID:        api.NewUUID(),
+		Name:      name,
+		Slug:      slug,
+		GroupType: groupType,
+		CreatedBy: grove.CreatedBy,
+	}
+	if createErr := s.store.CreateGroup(ctx, newGroup); createErr != nil {
+		slog.Warn("fallback group creation also failed",
+			"grove", grove.ID, "slug", slug, "error", createErr)
+		return nil
+	}
+	slog.Info("created group without grove_id (unique constraint workaround)",
+		"grove", grove.ID, "group", newGroup.ID, "slug", slug)
+	return newGroup
 }
 
 // createGroveMembersGroupAndPolicy creates an explicit members group for a grove
@@ -2380,21 +2443,28 @@ func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *st
 			slog.Warn("failed to create grove members group", "grove", grove.ID, "error", err)
 			return
 		}
-		slog.Info("grove members group already exists, looking up",
+		slog.Info("grove members group constraint conflict, looking up by slug",
 			"grove", grove.ID, "slug", membersSlug)
-		// Group already exists — look it up so we can still add the user
+		// Constraint conflict — look up by slug first
 		existing, lookupErr := s.store.GetGroupBySlug(ctx, membersSlug)
 		if lookupErr != nil {
-			slog.Warn("failed to look up existing grove members group",
-				"grove", grove.ID, "slug", membersSlug, "error", lookupErr)
-			return
+			// Slug not found — the constraint conflict is likely on grove_id
+			// (unique constraint from a previous O2O ent schema). Find the
+			// phantom group that holds this grove_id and repurpose it.
+			existing = s.findOrCreateGroupForGrove(ctx, grove, membersSlug,
+				grove.Name+" Members", store.GroupTypeExplicit)
+			if existing == nil {
+				return
+			}
 		}
 		membersGroup = existing
 		// Update the grove ID association in case it changed (recreated grove)
-		membersGroup.GroveID = grove.ID
-		if updateErr := s.store.UpdateGroup(ctx, membersGroup); updateErr != nil {
-			slog.Warn("failed to update existing grove members group grove ID",
-				"grove", grove.ID, "slug", membersSlug, "error", updateErr)
+		if membersGroup.GroveID != grove.ID {
+			membersGroup.GroveID = grove.ID
+			if updateErr := s.store.UpdateGroup(ctx, membersGroup); updateErr != nil {
+				slog.Warn("failed to update existing grove members group grove ID",
+					"grove", grove.ID, "slug", membersSlug, "error", updateErr)
+			}
 		}
 	} else {
 		slog.Info("created grove members group",
