@@ -58,6 +58,9 @@ func TestNew(t *testing.T) {
 	if client.Auth() == nil {
 		t.Error("expected non-nil auth service")
 	}
+	if client.Tokens() == nil {
+		t.Error("expected non-nil tokens service")
+	}
 }
 
 func TestHealth(t *testing.T) {
@@ -695,6 +698,169 @@ func TestSecretDelete(t *testing.T) {
 
 	client, _ := New(server.URL)
 	err := client.Secrets().Delete(context.Background(), "OLD_SECRET", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTokenCreate(t *testing.T) {
+	expires := time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/auth/tokens" {
+			t.Errorf("expected path /api/v1/auth/tokens, got %s", r.URL.Path)
+		}
+
+		var req CreateTokenRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+		}
+		if req.Name != "ci-token" {
+			t.Errorf("expected name 'ci-token', got %q", req.Name)
+		}
+		if req.GroveID != "grove-123" {
+			t.Errorf("expected groveId 'grove-123', got %q", req.GroveID)
+		}
+		if len(req.Scopes) != 2 {
+			t.Errorf("expected 2 scopes, got %d", len(req.Scopes))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(CreateTokenResponse{
+			Token: "scion_pat_abc123",
+			AccessToken: &TokenInfo{
+				ID:        "token-uuid",
+				Name:      "ci-token",
+				Prefix:    "scion_pat_abc1",
+				GroveID:   "grove-123",
+				Scopes:    []string{"agent:dispatch", "agent:read"},
+				ExpiresAt: &expires,
+				Created:   time.Now(),
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Tokens().Create(context.Background(), &CreateTokenRequest{
+		Name:      "ci-token",
+		GroveID:   "grove-123",
+		Scopes:    []string{"agent:dispatch", "agent:read"},
+		ExpiresAt: &expires,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Token != "scion_pat_abc123" {
+		t.Errorf("expected token 'scion_pat_abc123', got %q", resp.Token)
+	}
+	if resp.AccessToken.Name != "ci-token" {
+		t.Errorf("expected name 'ci-token', got %q", resp.AccessToken.Name)
+	}
+	if resp.AccessToken.GroveID != "grove-123" {
+		t.Errorf("expected groveId 'grove-123', got %q", resp.AccessToken.GroveID)
+	}
+}
+
+func TestTokenList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/auth/tokens" {
+			t.Errorf("expected path /api/v1/auth/tokens, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ListTokensResponse{
+			Items: []TokenInfo{
+				{ID: "t1", Name: "ci-token", Prefix: "scion_pat_abc1", GroveID: "grove-1", Scopes: []string{"agent:dispatch"}},
+				{ID: "t2", Name: "deploy", Prefix: "scion_pat_def2", GroveID: "grove-2", Scopes: []string{"agent:manage"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Tokens().List(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Errorf("expected 2 tokens, got %d", len(resp.Items))
+	}
+	if resp.Items[0].Name != "ci-token" {
+		t.Errorf("expected name 'ci-token', got %q", resp.Items[0].Name)
+	}
+}
+
+func TestTokenGet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/auth/tokens/token-123" {
+			t.Errorf("expected path /api/v1/auth/tokens/token-123, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TokenInfo{
+			ID:      "token-123",
+			Name:    "ci-token",
+			Prefix:  "scion_pat_abc1",
+			GroveID: "grove-1",
+			Scopes:  []string{"agent:dispatch"},
+			Created: time.Now(),
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	token, err := client.Tokens().Get(context.Background(), "token-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token.ID != "token-123" {
+		t.Errorf("expected id 'token-123', got %q", token.ID)
+	}
+	if token.Name != "ci-token" {
+		t.Errorf("expected name 'ci-token', got %q", token.Name)
+	}
+}
+
+func TestTokenRevoke(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/auth/tokens/token-123/revoke" {
+			t.Errorf("expected path /api/v1/auth/tokens/token-123/revoke, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	err := client.Tokens().Revoke(context.Background(), "token-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTokenDelete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/auth/tokens/token-123" {
+			t.Errorf("expected path /api/v1/auth/tokens/token-123, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	err := client.Tokens().Delete(context.Background(), "token-123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -64,6 +64,9 @@ type Client interface {
 	// Notifications returns the notification operations interface.
 	Notifications() NotificationService
 
+	// Tokens returns the user access token operations interface.
+	Tokens() TokenService
+
 	// Subscriptions returns the notification subscription operations interface.
 	Subscriptions() SubscriptionService
 
@@ -97,6 +100,7 @@ type client struct {
 	env            *envService
 	secrets        *secretService
 	authService    *authService
+	tokens         *tokenService
 	notifications           *notificationService
 	subscriptions           *subscriptionService
 	subscriptionTemplates   *subscriptionTemplateService
@@ -123,6 +127,7 @@ func New(baseURL string, opts ...Option) (Client, error) {
 	c.env = &envService{c: c}
 	c.secrets = &secretService{c: c}
 	c.authService = &authService{c: c}
+	c.tokens = &tokenService{c: c}
 	c.notifications = &notificationService{c: c}
 	c.subscriptions = &subscriptionService{c: c}
 	c.subscriptionTemplates = &subscriptionTemplateService{c: c}
@@ -183,6 +188,11 @@ func (c *client) Secrets() SecretService {
 // Auth returns the authentication operations interface.
 func (c *client) Auth() AuthService {
 	return c.authService
+}
+
+// Tokens returns the user access token operations interface.
+func (c *client) Tokens() TokenService {
+	return c.tokens
 }
 
 // Notifications returns the notification operations interface.

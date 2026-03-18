@@ -104,6 +104,7 @@ func (m *mockHubClient) Users() hubclient.UserService                    { retur
 func (m *mockHubClient) Env() hubclient.EnvService                       { return nil }
 func (m *mockHubClient) Secrets() hubclient.SecretService                { return nil }
 func (m *mockHubClient) Auth() hubclient.AuthService                     { return nil }
+func (m *mockHubClient) Tokens() hubclient.TokenService                  { return nil }
 func (m *mockHubClient) Notifications() hubclient.NotificationService     { return nil }
 func (m *mockHubClient) Subscriptions() hubclient.SubscriptionService     { return nil }
 func (m *mockHubClient) SubscriptionTemplates() hubclient.SubscriptionTemplateService { return nil }
