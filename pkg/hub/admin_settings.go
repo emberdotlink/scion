@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/GoogleCloudPlatform/scion/pkg/api"
 	"github.com/GoogleCloudPlatform/scion/pkg/config"
 	"github.com/GoogleCloudPlatform/scion/pkg/version"
 	yamlv3 "gopkg.in/yaml.v3"
@@ -44,6 +45,12 @@ type ServerConfigResponse struct {
 	Runtimes             map[string]config.V1RuntimeConfig     `json:"runtimes,omitempty"`
 	HarnessConfigs       map[string]config.HarnessConfigEntry  `json:"harness_configs,omitempty"`
 	Profiles             map[string]config.V1ProfileConfig     `json:"profiles,omitempty"`
+
+	// Default agent limits
+	DefaultMaxTurns      int              `json:"default_max_turns,omitempty"`
+	DefaultMaxModelCalls int              `json:"default_max_model_calls,omitempty"`
+	DefaultMaxDuration   string           `json:"default_max_duration,omitempty"`
+	DefaultResources     *api.ResourceSpec `json:"default_resources,omitempty"`
 }
 
 // ServerConfigUpdateRequest is the payload for updating settings.
@@ -59,6 +66,12 @@ type ServerConfigUpdateRequest struct {
 	Runtimes             map[string]config.V1RuntimeConfig     `json:"runtimes,omitempty"`
 	HarnessConfigs       map[string]config.HarnessConfigEntry  `json:"harness_configs,omitempty"`
 	Profiles             map[string]config.V1ProfileConfig     `json:"profiles,omitempty"`
+
+	// Default agent limits
+	DefaultMaxTurns      *int              `json:"default_max_turns,omitempty"`
+	DefaultMaxModelCalls *int              `json:"default_max_model_calls,omitempty"`
+	DefaultMaxDuration   *string           `json:"default_max_duration,omitempty"`
+	DefaultResources     *api.ResourceSpec `json:"default_resources,omitempty"`
 }
 
 // handleAdminServerConfig handles GET/PUT /api/v1/admin/server-config.
@@ -128,6 +141,10 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter) {
 		Runtimes:             vs.Runtimes,
 		HarnessConfigs:       vs.HarnessConfigs,
 		Profiles:             vs.Profiles,
+		DefaultMaxTurns:      vs.DefaultMaxTurns,
+		DefaultMaxModelCalls: vs.DefaultMaxModelCalls,
+		DefaultMaxDuration:   vs.DefaultMaxDuration,
+		DefaultResources:     vs.DefaultResources,
 	}
 
 	maskSensitiveFields(&resp)
@@ -296,6 +313,31 @@ func applySettingsUpdates(raw map[string]interface{}, req *ServerConfigUpdateReq
 	}
 	if req.Profiles != nil {
 		raw["profiles"] = marshalToMap(req.Profiles)
+	}
+
+	if req.DefaultMaxTurns != nil {
+		if *req.DefaultMaxTurns > 0 {
+			raw["default_max_turns"] = *req.DefaultMaxTurns
+		} else {
+			delete(raw, "default_max_turns")
+		}
+	}
+	if req.DefaultMaxModelCalls != nil {
+		if *req.DefaultMaxModelCalls > 0 {
+			raw["default_max_model_calls"] = *req.DefaultMaxModelCalls
+		} else {
+			delete(raw, "default_max_model_calls")
+		}
+	}
+	if req.DefaultMaxDuration != nil {
+		if *req.DefaultMaxDuration != "" {
+			raw["default_max_duration"] = *req.DefaultMaxDuration
+		} else {
+			delete(raw, "default_max_duration")
+		}
+	}
+	if req.DefaultResources != nil {
+		raw["default_resources"] = marshalToMap(req.DefaultResources)
 	}
 }
 

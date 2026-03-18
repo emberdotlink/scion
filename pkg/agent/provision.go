@@ -678,6 +678,29 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		}
 	}
 
+	// Apply default limits from settings (hub global defaults) if not already set
+	// by template or inline config. Priority: agent > template > settings defaults.
+	if settings != nil && finalScionCfg != nil {
+		if finalScionCfg.MaxTurns == 0 && settings.DefaultMaxTurns > 0 {
+			finalScionCfg.MaxTurns = settings.DefaultMaxTurns
+		}
+		if finalScionCfg.MaxModelCalls == 0 && settings.DefaultMaxModelCalls > 0 {
+			finalScionCfg.MaxModelCalls = settings.DefaultMaxModelCalls
+		}
+		if finalScionCfg.MaxDuration == "" && settings.DefaultMaxDuration != "" {
+			finalScionCfg.MaxDuration = settings.DefaultMaxDuration
+		}
+		if settings.DefaultResources != nil {
+			if finalScionCfg.Resources == nil {
+				cpy := *settings.DefaultResources
+				finalScionCfg.Resources = &cpy
+			} else {
+				// Merge: settings defaults are lower priority, so use them as base
+				finalScionCfg.Resources = config.MergeResourceSpec(settings.DefaultResources, finalScionCfg.Resources)
+			}
+		}
+	}
+
 	// Mount the resolved workspace if an external source was determined
 	if workspaceSource != "" {
 		finalScionCfg.Volumes = append(finalScionCfg.Volumes, api.VolumeMount{

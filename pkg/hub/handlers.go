@@ -598,6 +598,9 @@ func (s *Server) createAgentInGrove(
 		agent.Detached = true
 	}
 
+	// Apply grove-level default limits to inline config (lower priority than explicit values)
+	applyGroveDefaultLimits(agent.AppliedConfig, grove)
+
 	s.populateAgentConfig(agent, grove, resolvedTemplate)
 
 	if err := s.store.CreateAgent(ctx, agent); err != nil {

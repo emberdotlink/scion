@@ -237,6 +237,12 @@ type VersionedSettings struct {
 	HarnessConfigs  map[string]HarnessConfigEntry   `json:"harness_configs,omitempty" yaml:"harness_configs,omitempty" koanf:"harness_configs"`
 	Profiles        map[string]V1ProfileConfig      `json:"profiles,omitempty" yaml:"profiles,omitempty" koanf:"profiles"`
 	SharedDirs      []api.SharedDir                 `json:"shared_dirs,omitempty" yaml:"shared_dirs,omitempty" koanf:"shared_dirs"`
+
+	// Default agent limits (applied when no explicit value is set)
+	DefaultMaxTurns      int              `json:"default_max_turns,omitempty" yaml:"default_max_turns,omitempty" koanf:"default_max_turns"`
+	DefaultMaxModelCalls int              `json:"default_max_model_calls,omitempty" yaml:"default_max_model_calls,omitempty" koanf:"default_max_model_calls"`
+	DefaultMaxDuration   string           `json:"default_max_duration,omitempty" yaml:"default_max_duration,omitempty" koanf:"default_max_duration"`
+	DefaultResources     *api.ResourceSpec `json:"default_resources,omitempty" yaml:"default_resources,omitempty" koanf:"default_resources"`
 }
 
 // V1ServerConfig holds server-side configuration in the versioned settings format.

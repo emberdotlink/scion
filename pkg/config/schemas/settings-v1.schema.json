@@ -169,6 +169,32 @@
       "additionalProperties": {
         "$ref": "#/$defs/profileConfig"
       }
+    },
+    "default_max_turns": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Default max turns for new agents. Applied when no explicit value is set.",
+      "x-scope": "any",
+      "x-since": "1"
+    },
+    "default_max_model_calls": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Default max model calls for new agents.",
+      "x-scope": "any",
+      "x-since": "1"
+    },
+    "default_max_duration": {
+      "type": "string",
+      "description": "Default max duration for new agents (Go duration, e.g. '2h', '30m').",
+      "x-scope": "any",
+      "x-since": "1"
+    },
+    "default_resources": {
+      "$ref": "#/$defs/resourceSpec",
+      "description": "Default resource requests/limits for new agents.",
+      "x-scope": "any",
+      "x-since": "1"
     }
   },
   "additionalProperties": false,

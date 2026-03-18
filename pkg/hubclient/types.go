@@ -124,6 +124,25 @@ type GroveSettings struct {
 	Runtimes             map[string]interface{} `json:"runtimes,omitempty"`
 	Harnesses            map[string]interface{} `json:"harnesses,omitempty"`
 	Profiles             map[string]interface{} `json:"profiles,omitempty"`
+
+	// Default agent limits
+	DefaultMaxTurns      int              `json:"defaultMaxTurns,omitempty"`
+	DefaultMaxModelCalls int              `json:"defaultMaxModelCalls,omitempty"`
+	DefaultMaxDuration   string           `json:"defaultMaxDuration,omitempty"`
+	DefaultResources     *GroveResourceSpec `json:"defaultResources,omitempty"`
+}
+
+// GroveResourceSpec defines default resource requirements at the grove level.
+type GroveResourceSpec struct {
+	Requests *GroveResourceList `json:"requests,omitempty"`
+	Limits   *GroveResourceList `json:"limits,omitempty"`
+	Disk     string             `json:"disk,omitempty"`
+}
+
+// GroveResourceList is a set of resource name/quantity pairs.
+type GroveResourceList struct {
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
 }
 
 // BucketConfig represents cloud storage configuration.
