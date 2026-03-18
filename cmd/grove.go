@@ -78,7 +78,7 @@ With --global, it initializes in the user's home folder.`,
 				registryValue = promptImageRegistry()
 			}
 
-			opts := config.InitMachineOpts{ImageRegistry: registryValue}
+			opts := config.InitMachineOpts{ImageRegistry: registryValue, Force: machineInitForce}
 			if err := config.InitMachine(harnesses, opts); err != nil {
 				return fmt.Errorf("failed to initialize global config: %w", err)
 			}

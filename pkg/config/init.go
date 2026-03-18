@@ -650,6 +650,10 @@ type InitMachineOpts struct {
 	// ImageRegistry is the container image registry to configure.
 	// If non-empty, it is written into settings after seeding.
 	ImageRegistry string
+
+	// Force overwrites existing template and harness-config files with the
+	// versions embedded in the binary. Use this to refresh after a binary upgrade.
+	Force bool
 }
 
 // InitMachine performs full global/machine-level setup: creates ~/.scion/,
@@ -688,6 +692,11 @@ func InitMachine(harnesses []api.Harness, opts ...InitMachineOpts) error {
 		}
 	}
 
+	var opt InitMachineOpts
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	templatesDir := filepath.Join(globalDir, "templates")
 	agentsDir := filepath.Join(globalDir, "agents")
 	harnessConfigsDir := filepath.Join(globalDir, harnessConfigsDirName)
@@ -697,13 +706,13 @@ func InitMachine(harnesses []api.Harness, opts ...InitMachineOpts) error {
 	}
 
 	// Seed default agnostic template
-	if err := SeedAgnosticTemplate(filepath.Join(templatesDir, "default"), false); err != nil {
+	if err := SeedAgnosticTemplate(filepath.Join(templatesDir, "default"), opt.Force); err != nil {
 		return fmt.Errorf("failed to seed global default agnostic template: %w", err)
 	}
 
 	for _, h := range harnesses {
 		// Seed harness-config directory
-		if err := SeedHarnessConfig(filepath.Join(harnessConfigsDir, h.Name()), h, false); err != nil {
+		if err := SeedHarnessConfig(filepath.Join(harnessConfigsDir, h.Name()), h, opt.Force); err != nil {
 			return fmt.Errorf("failed to seed global %s harness-config: %w", h.Name(), err)
 		}
 	}
@@ -714,11 +723,6 @@ func InitMachine(harnesses []api.Harness, opts ...InitMachineOpts) error {
 		return fmt.Errorf("failed to pre-populate broker ID: %w", err)
 	}
 
-	// Set image_registry if provided via opts
-	var opt InitMachineOpts
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
 	if opt.ImageRegistry != "" {
 		if err := UpdateSetting(globalDir, "image_registry", opt.ImageRegistry, true); err != nil {
 			return fmt.Errorf("failed to set image_registry: %w", err)

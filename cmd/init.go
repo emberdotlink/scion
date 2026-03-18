@@ -19,6 +19,7 @@ import (
 )
 
 var machineInit bool
+var machineInitForce bool
 
 // initCmd represents the init command
 var initCmd = &cobra.Command{
@@ -42,5 +43,6 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	initCmd.Flags().BoolVar(&globalInit, "global", false, "Initialize the global grove in the home directory")
 	initCmd.Flags().BoolVar(&machineInit, "machine", false, "Perform full machine-level setup (seeds harness-configs, templates, settings)")
+	initCmd.Flags().BoolVar(&machineInitForce, "force", false, "Force overwrite existing templates and harness-configs with embedded defaults")
 	initCmd.Flags().StringVar(&initImageRegistry, "image-registry", "", "Container image registry path (e.g., ghcr.io/myorg)")
 }
