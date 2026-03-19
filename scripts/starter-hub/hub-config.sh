@@ -62,6 +62,6 @@ REPO_DIR="${REPO_DIR:-/home/scion/scion}"
 SCION_BIN="${SCION_BIN:-/usr/local/bin/scion}"
 
 # --- Shared Defaults ---
-GITHUB_REPO="${GITHUB_REPO:-ptone/scion-agent}"
+GITHUB_REPO="${GITHUB_REPO:-GoogleCloudPlatform/scion}"
 CERT_EMAIL="${CERT_EMAIL:-ptone@google.com}"
 CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-scripts/starter-hub/gce-demo-cloud-init.yaml}"
