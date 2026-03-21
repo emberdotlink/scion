@@ -29,6 +29,9 @@ func TestFormatFlagCheck(t *testing.T) {
 	origFormat := outputFormat
 	defer func() { outputFormat = origFormat }()
 
+	// Clear SCION_HOST_UID so the agent-container check doesn't interfere
+	t.Setenv("SCION_HOST_UID", "")
+
 	// Bypass the git and workspace checks for this specific test
 	origGlobal := globalMode
 	globalMode = true
@@ -369,6 +372,151 @@ func TestTelemetryFlagsMutualExclusion(t *testing.T) {
 	err := RunAgent(&cobra.Command{Use: "start"}, []string{"test-agent"}, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "--enable-telemetry and --disable-telemetry are mutually exclusive")
+}
+
+func TestCheckAgentContainerContext(t *testing.T) {
+	// Save and restore original flag state
+	origHubEndpoint := hubEndpoint
+	defer func() { hubEndpoint = origHubEndpoint }()
+
+	tests := []struct {
+		name        string
+		hostUID     string
+		hubEndpoint string // flag value
+		hubEnv      string // SCION_HUB_ENDPOINT env var
+		cmdName     string
+		expectError bool
+		errContains string
+	}{
+		{
+			name:        "not in container — no error",
+			hostUID:     "",
+			cmdName:     "list",
+			expectError: false,
+		},
+		{
+			name:        "in container, no hub endpoint — error",
+			hostUID:     "1000",
+			cmdName:     "list",
+			expectError: true,
+			errContains: "no Hub endpoint is configured",
+		},
+		{
+			name:        "in container, localhost hub — error",
+			hostUID:     "1000",
+			hubEnv:      "http://localhost:9810",
+			cmdName:     "list",
+			expectError: true,
+			errContains: "points to localhost",
+		},
+		{
+			name:        "in container, 127.0.0.1 hub — error",
+			hostUID:     "1000",
+			hubEnv:      "http://127.0.0.1:9810",
+			cmdName:     "start",
+			expectError: true,
+			errContains: "points to localhost",
+		},
+		{
+			name:        "in container, remote hub — no error",
+			hostUID:     "1000",
+			hubEnv:      "https://hub.scion.dev",
+			cmdName:     "list",
+			expectError: false,
+		},
+		{
+			name:        "in container, remote hub via flag — no error",
+			hostUID:     "1000",
+			hubEndpoint: "https://hub.scion.dev",
+			cmdName:     "list",
+			expectError: false,
+		},
+		{
+			name:        "in container, version command exempt",
+			hostUID:     "1000",
+			cmdName:     "version",
+			expectError: false,
+		},
+		{
+			name:        "in container, help command exempt",
+			hostUID:     "1000",
+			cmdName:     "help",
+			expectError: false,
+		},
+		{
+			name:        "in container, doctor command exempt",
+			hostUID:     "1000",
+			cmdName:     "doctor",
+			expectError: false,
+		},
+		{
+			name:        "in container, config command exempt",
+			hostUID:     "1000",
+			cmdName:     "config",
+			expectError: false,
+		},
+		{
+			name:        "in container, root command exempt",
+			hostUID:     "1000",
+			cmdName:     "scion",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set env vars
+			if tt.hostUID != "" {
+				t.Setenv("SCION_HOST_UID", tt.hostUID)
+			} else {
+				t.Setenv("SCION_HOST_UID", "")
+				os.Unsetenv("SCION_HOST_UID")
+			}
+			if tt.hubEnv != "" {
+				t.Setenv("SCION_HUB_ENDPOINT", tt.hubEnv)
+			} else {
+				t.Setenv("SCION_HUB_ENDPOINT", "")
+				os.Unsetenv("SCION_HUB_ENDPOINT")
+			}
+			t.Setenv("SCION_HUB_URL", "")
+			os.Unsetenv("SCION_HUB_URL")
+
+			// Set flag
+			hubEndpoint = tt.hubEndpoint
+
+			cmd := &cobra.Command{Use: tt.cmdName}
+			err := checkAgentContainerContext(cmd)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCheckAgentContainerContextConfigSubcommand(t *testing.T) {
+	t.Setenv("SCION_HOST_UID", "1000")
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+	os.Unsetenv("SCION_HUB_ENDPOINT")
+	t.Setenv("SCION_HUB_URL", "")
+	os.Unsetenv("SCION_HUB_URL")
+
+	origHubEndpoint := hubEndpoint
+	hubEndpoint = ""
+	defer func() { hubEndpoint = origHubEndpoint }()
+
+	// config subcommand (e.g., "config set") should be exempt
+	parentCmd := &cobra.Command{Use: "config"}
+	childCmd := &cobra.Command{Use: "set"}
+	parentCmd.AddCommand(childCmd)
+
+	err := checkAgentContainerContext(childCmd)
+	assert.NoError(t, err)
 }
 
 func TestIsLocalEndpoint(t *testing.T) {

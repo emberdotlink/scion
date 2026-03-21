@@ -53,6 +53,14 @@ return an error instead of blocking.`,
 			util.EnableDebug()
 		}
 
+		// Detect agent container context without a reachable Hub endpoint.
+		// SCION_HOST_UID is set by the runtime when launching agent containers.
+		// If present but no non-localhost Hub endpoint is configured, the CLI
+		// cannot do anything useful — warn the agent and abort.
+		if err := checkAgentContainerContext(cmd); err != nil {
+			return err
+		}
+
 		if globalMode && grovePath == "" {
 			grovePath = "global"
 		}
@@ -314,6 +322,77 @@ func printDevAuthWarningIfNeeded(grovePath string) {
 	// Dev auth is being used with Hub enabled - print warning to stderr
 	fmt.Fprintf(os.Stderr, "\n%s%s WARNING: Development authentication enabled - not for production use %s\n\n",
 		util.Bold, util.Yellow, util.Reset)
+}
+
+// checkAgentContainerContext detects when the CLI is running inside an agent
+// container (SCION_HOST_UID is set) but has no reachable Hub endpoint. In that
+// scenario the CLI cannot manage agents, groves, or any other resources, so we
+// print a prominent banner and return an error to prevent confusion.
+// A small set of informational commands (version, help, completion, doctor,
+// config) are exempted so the agent can still inspect its environment.
+func checkAgentContainerContext(cmd *cobra.Command) error {
+	if os.Getenv("SCION_HOST_UID") == "" {
+		// Not inside an agent container — nothing to check.
+		return nil
+	}
+
+	cmdName := cmd.Name()
+	switch cmdName {
+	case "help", "version", "completion", "doctor", "config", "scion":
+		return nil
+	}
+	if cmd.Parent() != nil && cmd.Parent().Name() == "config" {
+		return nil
+	}
+
+	// Resolve the hub endpoint from flags and env vars (settings may not
+	// load cleanly inside a container, so check env vars directly too).
+	endpoint := hubEndpoint
+	if endpoint == "" {
+		endpoint = os.Getenv("SCION_HUB_ENDPOINT")
+	}
+	if endpoint == "" {
+		endpoint = os.Getenv("SCION_HUB_URL")
+	}
+
+	if endpoint != "" && !isLocalEndpoint(endpoint) {
+		// A reachable (non-localhost) Hub endpoint is configured — all good.
+		return nil
+	}
+
+	reason := "no Hub endpoint is configured"
+	if endpoint != "" {
+		reason = fmt.Sprintf("the Hub endpoint (%s) points to localhost, which is not reachable from inside this container", endpoint)
+	}
+
+	return fmt.Errorf(
+		"%s%s╔══════════════════════════════════════════════════════════════════╗%s\n"+
+			"%s%s║  SCION CLI — Running inside an agent container                 ║%s\n"+
+			"%s%s╠══════════════════════════════════════════════════════════════════╣%s\n"+
+			"%s%s║                                                                  ║%s\n"+
+			"%s%s║  The scion CLI cannot be used from within an agent container     ║%s\n"+
+			"%s%s║  because %s.%s\n"+
+			"%s%s║                                                                  ║%s\n"+
+			"%s%s║  To use the CLI, configure a reachable Hub endpoint:             ║%s\n"+
+			"%s%s║    • Set SCION_HUB_ENDPOINT to a non-localhost URL               ║%s\n"+
+			"%s%s║    • Or pass --hub <url> on the command line                     ║%s\n"+
+			"%s%s║                                                                  ║%s\n"+
+			"%s%s║  Allowed commands: version, help, doctor, config                 ║%s\n"+
+			"%s%s╚══════════════════════════════════════════════════════════════════╝%s",
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, reason, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+		util.Bold, util.Yellow, util.Reset,
+	)
 }
 
 // isLocalEndpoint returns true if the given endpoint URL points to a local address
