@@ -3401,6 +3401,26 @@ func TestUpdateVersionedSetting_ImageRegistry(t *testing.T) {
 	assert.Equal(t, "ghcr.io/myorg", loaded.ImageRegistry)
 }
 
+func TestUpdateVersionedSetting_DefaultHarnessConfig(t *testing.T) {
+	dir := t.TempDir()
+	initial := &VersionedSettings{
+		SchemaVersion:  "1",
+		ActiveProfile:  "local",
+		Profiles:       map[string]V1ProfileConfig{},
+		HarnessConfigs: map[string]HarnessConfigEntry{},
+		Runtimes:       map[string]V1RuntimeConfig{},
+	}
+	err := SaveVersionedSettings(dir, initial)
+	require.NoError(t, err)
+
+	err = UpdateVersionedSetting(dir, "default_harness_config", "claude")
+	require.NoError(t, err)
+
+	loaded, err := LoadSingleFileVersioned(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", loaded.DefaultHarnessConfig)
+}
+
 func TestGetVersionedSettingValue(t *testing.T) {
 	autohelp := true
 	enabled := false
@@ -3408,11 +3428,12 @@ func TestGetVersionedSettingValue(t *testing.T) {
 	localOnly := true
 
 	vs := &VersionedSettings{
-		SchemaVersion:   "1",
-		ActiveProfile:   "staging",
-		DefaultTemplate: "my-template",
-		ImageRegistry:   "ghcr.io/myorg",
-		CLI:             &V1CLIConfig{AutoHelp: &autohelp},
+		SchemaVersion:        "1",
+		ActiveProfile:        "staging",
+		DefaultTemplate:      "my-template",
+		DefaultHarnessConfig: "claude",
+		ImageRegistry:        "ghcr.io/myorg",
+		CLI:                  &V1CLIConfig{AutoHelp: &autohelp},
 		Hub: &V1HubClientConfig{
 			Enabled:   &enabled,
 			Linked:    &linked,
@@ -3435,6 +3456,7 @@ func TestGetVersionedSettingValue(t *testing.T) {
 	}{
 		{"active_profile", "staging"},
 		{"default_template", "my-template"},
+		{"default_harness_config", "claude"},
 		{"image_registry", "ghcr.io/myorg"},
 		{"cli.autohelp", "true"},
 		{"grove_id", "grove-123"},
