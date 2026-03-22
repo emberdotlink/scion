@@ -1442,3 +1442,76 @@ func TestFriendlyTemplateName(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveContentInChain(t *testing.T) {
+	t.Run("file in parent template is found when missing from child", func(t *testing.T) {
+		parentDir := t.TempDir()
+		childDir := t.TempDir()
+
+		expectedContent := "# Base agent instructions\nBe helpful."
+		os.WriteFile(filepath.Join(parentDir, "agents.md"), []byte(expectedContent), 0644)
+
+		chain := []*Template{
+			{Name: "default", Path: parentDir},
+			{Name: "custom", Path: childDir},
+		}
+
+		content, err := ResolveContentInChain(chain, "agents.md")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(content) != expectedContent {
+			t.Errorf("expected content from parent template, got %q", string(content))
+		}
+	})
+
+	t.Run("file in child template takes precedence over parent", func(t *testing.T) {
+		parentDir := t.TempDir()
+		childDir := t.TempDir()
+
+		os.WriteFile(filepath.Join(parentDir, "agents.md"), []byte("parent content"), 0644)
+		os.WriteFile(filepath.Join(childDir, "agents.md"), []byte("child content"), 0644)
+
+		chain := []*Template{
+			{Name: "default", Path: parentDir},
+			{Name: "custom", Path: childDir},
+		}
+
+		content, err := ResolveContentInChain(chain, "agents.md")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(content) != "child content" {
+			t.Errorf("expected child content to take precedence, got %q", string(content))
+		}
+	})
+
+	t.Run("inline content returned when no template has the file", func(t *testing.T) {
+		dir1 := t.TempDir()
+		dir2 := t.TempDir()
+
+		chain := []*Template{
+			{Name: "default", Path: dir1},
+			{Name: "custom", Path: dir2},
+		}
+
+		content, err := ResolveContentInChain(chain, "You are a helpful assistant.")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(content) != "You are a helpful assistant." {
+			t.Errorf("expected inline content, got %q", string(content))
+		}
+	})
+
+	t.Run("empty field returns nil", func(t *testing.T) {
+		chain := []*Template{{Name: "default", Path: t.TempDir()}}
+		content, err := ResolveContentInChain(chain, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content != nil {
+			t.Errorf("expected nil for empty field, got %q", string(content))
+		}
+	})
+}

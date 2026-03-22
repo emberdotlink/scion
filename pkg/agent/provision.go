@@ -556,9 +556,9 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 				content = []byte(finalScionCfg.AgentInstructions)
 				util.Debugf("ProvisionAgent: using inline agent_instructions (%d bytes)", len(content))
 			} else {
-				util.Debugf("ProvisionAgent: resolving agent_instructions=%q from template %s", finalScionCfg.AgentInstructions, lastTpl.Path)
+				util.Debugf("ProvisionAgent: resolving agent_instructions=%q across template chain (%d templates)", finalScionCfg.AgentInstructions, len(chain))
 				var err error
-				content, err = lastTpl.ResolveContent(finalScionCfg.AgentInstructions)
+				content, err = config.ResolveContentInChain(chain, finalScionCfg.AgentInstructions)
 				if err != nil {
 					return "", "", nil, fmt.Errorf("failed to resolve agent_instructions: %w", err)
 				}
@@ -595,9 +595,9 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 				content = []byte(finalScionCfg.SystemPrompt)
 				util.Debugf("ProvisionAgent: using inline system_prompt (%d bytes)", len(content))
 			} else {
-				util.Debugf("ProvisionAgent: resolving system_prompt=%q from template %s", finalScionCfg.SystemPrompt, lastTpl.Path)
+				util.Debugf("ProvisionAgent: resolving system_prompt=%q across template chain (%d templates)", finalScionCfg.SystemPrompt, len(chain))
 				var err error
-				content, err = lastTpl.ResolveContent(finalScionCfg.SystemPrompt)
+				content, err = config.ResolveContentInChain(chain, finalScionCfg.SystemPrompt)
 				if err != nil {
 					return "", "", nil, fmt.Errorf("failed to resolve system_prompt: %w", err)
 				}

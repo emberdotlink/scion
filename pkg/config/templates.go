@@ -55,6 +55,34 @@ func (t *Template) ResolveContent(field string) ([]byte, error) {
 	return []byte(field), nil
 }
 
+// ResolveContentInChain resolves a template field value by searching the
+// template chain in reverse order (most specific first). This ensures that
+// when a custom template inherits a file reference like "agents.md" from a
+// parent template's config, the file is found in the parent template even
+// if it doesn't exist in the custom template's directory. Only falls back
+// to treating the field as inline content if no template in the chain
+// contains the file.
+func ResolveContentInChain(chain []*Template, field string) ([]byte, error) {
+	if field == "" {
+		return nil, nil
+	}
+
+	// Walk chain in reverse (most specific first) looking for the file
+	for i := len(chain) - 1; i >= 0; i-- {
+		filePath := filepath.Join(chain[i].Path, field)
+		if _, err := os.Stat(filePath); err == nil {
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read content file %s: %w", filePath, err)
+			}
+			return data, nil
+		}
+	}
+
+	// No template had the file; treat as inline content
+	return []byte(field), nil
+}
+
 func (t *Template) LoadConfig() (*api.ScionConfig, error) {
 	// Try YAML first, then JSON
 	configPath := GetScionAgentConfigPath(t.Path)
