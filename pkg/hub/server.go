@@ -796,11 +796,12 @@ func (s *Server) GetMessageBrokerProxy() *MessageBrokerProxy {
 }
 
 // logMessage logs a message dispatch event to the dedicated message logger
-// (if configured) and the standard subsystem message logger.
+// if configured, otherwise falls back to the standard subsystem message logger.
 func (s *Server) logMessage(msg string, attrs ...any) {
-	s.messageLog.Info(msg, attrs...)
 	if s.dedicatedMessageLog != nil {
 		s.dedicatedMessageLog.Info(msg, attrs...)
+	} else {
+		s.messageLog.Info(msg, attrs...)
 	}
 }
 
