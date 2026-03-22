@@ -203,7 +203,8 @@ func (m *AgentManager) deliverImmediate(ctx context.Context, agentID string, mes
 		// Empty messages send a bare Enter keypress to trigger confirmations
 		cmds = append(cmds, []string{"tmux", "send-keys", "-t", "scion:0", "Enter"})
 	} else {
-		cmds = append(cmds, []string{"tmux", "send-keys", "-t", "scion:0", message, "Enter"})
+		cmds = append(cmds, []string{"tmux", "send-keys", "-t", "scion:0", "-l", message})
+		cmds = append(cmds, []string{"tmux", "send-keys", "-t", "scion:0", "Enter"})
 	}
 
 	// 4. Execute
