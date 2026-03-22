@@ -154,6 +154,9 @@ export class ScionPageGroveSettings extends LitElement {
   @state()
   private configTelemetryEnabled: boolean | null = null;
 
+  @state()
+  private hubTelemetryDefault: boolean | null = null;
+
   // Default agent limits
   @state()
   private configDefaultMaxTurns = 0;
@@ -743,6 +746,7 @@ export class ScionPageGroveSettings extends LitElement {
     void this.loadTemplates();
     void this.loadDropdownTemplates();
     void this.loadSettings();
+    void this.loadHubTelemetryDefault();
     void this.loadHarnessConfigs();
     void this.loadBrokers();
   }
@@ -892,6 +896,18 @@ export class ScionPageGroveSettings extends LitElement {
       console.error('Failed to load grove settings:', err);
     } finally {
       this.settingsLoading = false;
+    }
+  }
+
+  private async loadHubTelemetryDefault(): Promise<void> {
+    try {
+      const response = await apiFetch('/api/v1/settings/public');
+      if (response.ok) {
+        const data = (await response.json()) as { telemetryEnabled?: boolean };
+        this.hubTelemetryDefault = data.telemetryEnabled ?? false;
+      }
+    } catch (err) {
+      console.error('Failed to load hub telemetry default:', err);
     }
   }
 
@@ -1517,17 +1533,27 @@ export class ScionPageGroveSettings extends LitElement {
 
               <div class="config-field">
                 <label>Telemetry</label>
-                <sl-switch
-                  ?checked=${this.configTelemetryEnabled === true}
+                <sl-select
+                  value=${this.configTelemetryEnabled === true
+                    ? 'enabled'
+                    : this.configTelemetryEnabled === false
+                      ? 'disabled'
+                      : 'inherit'}
                   ?disabled=${!canEdit}
                   @sl-change=${(e: Event) => {
-                    this.configTelemetryEnabled = (e.target as HTMLInputElement).checked;
+                    const val = (e.target as HTMLSelectElement).value;
+                    this.configTelemetryEnabled =
+                      val === 'enabled' ? true : val === 'disabled' ? false : null;
                   }}
                 >
-                  ${this.configTelemetryEnabled ? 'Enabled' : 'Disabled'}
-                </sl-switch>
+                  <sl-option value="inherit"
+                    >Use hub default (${this.hubTelemetryDefault === null ? '…' : this.hubTelemetryDefault ? 'enabled' : 'disabled'})</sl-option
+                  >
+                  <sl-option value="enabled">Enabled</sl-option>
+                  <sl-option value="disabled">Disabled</sl-option>
+                </sl-select>
                 <span class="field-help"
-                  >Enable or disable telemetry for agents in this grove.</span
+                  >Controls telemetry for agents in this grove. "Use hub default" inherits the server-level setting.</span
                 >
               </div>
             </div>
