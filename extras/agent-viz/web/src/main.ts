@@ -29,7 +29,10 @@ function init(): void {
   const graphContainer = document.getElementById('graph-container')!;
   const controlsContainer = document.getElementById('controls-container')!;
 
-  // Create overlay canvas for agents, messages, particles
+  // Initialize force-graph FIRST — it wipes the container's innerHTML on init
+  fileGraph = new FileGraph(graphContainer);
+
+  // Create overlay canvas AFTER force-graph so it isn't destroyed
   overlayCanvas = document.createElement('canvas');
   overlayCanvas.id = 'overlay-canvas';
   overlayCanvas.style.cssText =
@@ -38,7 +41,6 @@ function init(): void {
   overlayCtx = overlayCanvas.getContext('2d')!;
 
   // Initialize components
-  fileGraph = new FileGraph(graphContainer);
   agentRing = new AgentRing();
   messageRenderer = new MessageRenderer();
   fileEditRenderer = new FileEditRenderer();
