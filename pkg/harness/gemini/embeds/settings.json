@@ -17,7 +17,7 @@
     "name": "gemini-3-flash-preview"
   },
   "telemetry": {
-    "enabled": false
+    "enabled": true
   },
   "general": {
     "disableAutoUpdate": true,
