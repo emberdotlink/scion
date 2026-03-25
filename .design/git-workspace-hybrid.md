@@ -548,11 +548,24 @@ The branch name field on the new-agent form adapts its default based on workspac
    - ✅ Hint text adapts to explain shared branch semantics.
 5. ✅ Add `isSharedWorkspace()` helper to shared TypeScript types.
 
-### Phase 5: Credential Standardization & Polish
+### Phase 5: Credential Standardization & Polish ✅ Completed
 
-1. Standardize credential helper pattern across all git grove agent types (per-agent `$HOME`-based).
-2. Error handling and user guidance for common failure modes.
-3. Documentation and template updates.
+1. ✅ Standardize credential helper pattern across all git grove agent types (per-agent `$HOME`-based).
+   - ✅ Clone-based agents now write credential helper to `$HOME/.gitconfig` (not workspace `.git/config`).
+   - ✅ Both agent types use `sciontool credential-helper` for GitHub App token refresh.
+   - ✅ Consistent credential helper pattern: `$HOME/.gitconfig` for all git grove agents.
+2. ✅ Error handling and user guidance for common failure modes.
+   - ✅ `GitError` type with classified kinds: `GitErrAuth`, `GitErrNotFound`, `GitErrNetwork`, `GitErrNonFastForward`.
+   - ✅ `ClassifyGitError()` parses git stderr to categorize failures.
+   - ✅ `UserGuidance()` returns actionable hints for each error kind.
+   - ✅ Clone/pull errors return structured guidance in API `error.details.guidance`.
+   - ✅ Grove creation returns HTTP 422 for auth/not-found errors (instead of generic 500).
+   - ✅ Pull endpoint returns 401 for auth errors, 502 for network errors.
+   - ✅ `ErrCodeCloneFailed` and `ErrCodePullFailed` error code constants.
+   - ✅ Web UI `extractApiError()` includes guidance hints from structured error responses.
+3. ✅ Documentation and template updates.
+   - ✅ Code comments updated throughout to document standardized credential patterns.
+   - ✅ Provision-time credential setup documented as pre-configuration for sciontool init.
 
 ### Future Phases (Deferred)
 
