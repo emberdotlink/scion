@@ -799,6 +799,55 @@ func ReadTokenFile() string {
 	return token
 }
 
+// OutboundMessage is the payload for sending an agent-to-human outbound message.
+type OutboundMessage struct {
+	Recipient   string `json:"recipient,omitempty"`
+	RecipientID string `json:"recipient_id,omitempty"`
+	Msg         string `json:"msg"`
+	Type        string `json:"type,omitempty"`
+	Urgent      bool   `json:"urgent,omitempty"`
+}
+
+// SendOutboundMessage sends an outbound message from the agent to a human inbox.
+// Posts to POST /api/v1/agents/{agentID}/outbound-message using the agent token.
+// No retries — this is a best-effort fire-and-forget call.
+func (c *Client) SendOutboundMessage(ctx context.Context, msg OutboundMessage) error {
+	if !c.IsConfigured() {
+		return fmt.Errorf("hub client not configured")
+	}
+
+	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/outbound-message",
+		strings.TrimSuffix(c.hubURL, "/"), c.agentID)
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal outbound message: %w", err)
+	}
+
+	c.tokenMu.RLock()
+	currentToken := c.token
+	c.tokenMu.RUnlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Scion-Agent-Token", currentToken)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send outbound message: %w", err)
+	}
+	respBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("hub returned error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 // StartHeartbeat starts a background goroutine that periodically sends heartbeats to the Hub.
 // The heartbeat loop runs until the context is cancelled.
 // Returns a channel that will be closed when the heartbeat loop exits.

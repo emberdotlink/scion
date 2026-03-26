@@ -1548,10 +1548,10 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request, id, a
 		return
 	}
 
-	// For actions other than "status", "token/refresh", and "refresh-token" (self-access),
-	// we require user or agent authentication with appropriate scopes.
-	// Token refresh endpoints are handled separately with self-access enforcement.
-	if action != "status" && action != "token/refresh" && action != "refresh-token" {
+	// For actions other than "status", "token/refresh", "refresh-token", and
+	// "outbound-message" (self-access), we require user or agent authentication
+	// with appropriate scopes. Self-access endpoints enforce their own auth checks.
+	if action != "status" && action != "token/refresh" && action != "refresh-token" && action != "outbound-message" {
 		userIdent := GetUserIdentityFromContext(r.Context())
 		agentIdent := GetAgentIdentityFromContext(r.Context())
 		if userIdent == nil && agentIdent == nil {
@@ -1604,6 +1604,8 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request, id, a
 		s.handleAgentTokenRefresh(w, r, id)
 	case "refresh-token":
 		s.handleAgentGitHubTokenRefresh(w, r, id)
+	case "outbound-message":
+		s.handleAgentOutboundMessage(w, r, id)
 	default:
 		NotFound(w, "Action")
 	}
@@ -1660,6 +1662,122 @@ func (s *Server) handleAgentTokenRefresh(w http.ResponseWriter, r *http.Request,
 		"token":      newToken,
 		"expires_at": expiresAt.UTC().Format(time.RFC3339),
 	})
+}
+
+// OutboundMessageRequest is the request body for POST /api/v1/agents/{id}/outbound-message.
+type OutboundMessageRequest struct {
+	Recipient   string `json:"recipient,omitempty"`
+	RecipientID string `json:"recipient_id,omitempty"`
+	Msg         string `json:"msg"`
+	Type        string `json:"type,omitempty"`
+	Urgent      bool   `json:"urgent,omitempty"`
+}
+
+// handleAgentOutboundMessage handles POST /api/v1/agents/{id}/outbound-message.
+// Agents use this to send messages to human inboxes. Authenticated via agent
+// token (self-access only). The recipient defaults to the agent's creator when
+// not explicitly specified.
+func (s *Server) handleAgentOutboundMessage(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+
+	agentIdent := GetAgentIdentityFromContext(ctx)
+	if agentIdent == nil {
+		Unauthorized(w)
+		return
+	}
+	if agentIdent.ID() != id {
+		writeError(w, http.StatusForbidden, ErrCodeForbidden, "Agents can only send outbound messages as themselves", nil)
+		return
+	}
+
+	var req OutboundMessageRequest
+	if err := readJSON(r, &req); err != nil {
+		BadRequest(w, "Invalid request body: "+err.Error())
+		return
+	}
+	if req.Msg == "" {
+		ValidationError(w, "msg is required", nil)
+		return
+	}
+	if req.Type == "" {
+		req.Type = "input-needed"
+	}
+
+	agent, err := s.store.GetAgent(ctx, id)
+	if err != nil {
+		writeErrorFromErr(w, err, "")
+		return
+	}
+
+	// Resolve recipient: explicit takes precedence; implicit defaults to agent creator.
+	recipientID := req.RecipientID
+	recipient := req.Recipient
+	if recipientID == "" {
+		// Implicit: target the agent's owner/creator.
+		recipientID = agent.OwnerID
+		if recipientID == "" {
+			recipientID = agent.CreatedBy
+		}
+		// Resolve display name from user record if possible.
+		if recipientID != "" {
+			if u, err := s.store.GetUser(ctx, recipientID); err == nil {
+				name := u.DisplayName
+				if name == "" {
+					name = u.Email
+				}
+				recipient = "user:" + name
+			}
+		}
+		if recipient == "" && recipientID != "" {
+			recipient = "user:" + recipientID
+		}
+	}
+
+	storeMsg := &store.Message{
+		ID:          api.NewUUID(),
+		GroveID:     agent.GroveID,
+		Sender:      "agent:" + agent.Slug,
+		SenderID:    agent.ID,
+		Recipient:   recipient,
+		RecipientID: recipientID,
+		Msg:         req.Msg,
+		Type:        req.Type,
+		Urgent:      req.Urgent,
+		AgentID:     agent.ID,
+		CreatedAt:   time.Now(),
+	}
+
+	if err := s.store.CreateMessage(ctx, storeMsg); err != nil {
+		s.messageLog.Error("Failed to persist outbound message", "error", err)
+		// Non-fatal: continue with event/channel dispatch even if store fails.
+	}
+
+	// Publish SSE event so connected browser clients get real-time inbox updates.
+	s.events.PublishUserMessage(ctx, storeMsg)
+
+	// Dispatch to external channels (Slack, webhook, email) if configured.
+	if s.channelRegistry != nil && s.channelRegistry.Len() > 0 {
+		structuredMsg := &messages.StructuredMessage{
+			Sender:      storeMsg.Sender,
+			SenderID:    storeMsg.SenderID,
+			Recipient:   storeMsg.Recipient,
+			RecipientID: storeMsg.RecipientID,
+			Msg:         storeMsg.Msg,
+			Type:        storeMsg.Type,
+			Urgent:      storeMsg.Urgent,
+		}
+		s.channelRegistry.Dispatch(ctx, structuredMsg)
+	}
+
+	s.logMessage("outbound message sent",
+		"agent_id", agent.ID,
+		"agent_name", agent.Name,
+		"grove_id", agent.GroveID,
+		"recipient_id", recipientID,
+		"msg_type", req.Type,
+	)
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // handleAgentGitHubTokenRefresh handles POST /api/v1/agents/{id}/refresh-token.

@@ -37,6 +37,7 @@ type EventPublisher interface {
 	PublishBrokerDisconnected(ctx context.Context, brokerID string, groveIDs []string)
 	PublishBrokerStatus(ctx context.Context, brokerID, status string)
 	PublishNotification(ctx context.Context, notif *store.Notification)
+	PublishUserMessage(ctx context.Context, msg *store.Message)
 	Close()
 }
 
@@ -54,6 +55,7 @@ func (noopEventPublisher) PublishBrokerConnected(_ context.Context, _, _ string,
 func (noopEventPublisher) PublishBrokerDisconnected(_ context.Context, _ string, _ []string) {}
 func (noopEventPublisher) PublishBrokerStatus(_ context.Context, _, _ string)                {}
 func (noopEventPublisher) PublishNotification(_ context.Context, _ *store.Notification)      {}
+func (noopEventPublisher) PublishUserMessage(_ context.Context, _ *store.Message)            {}
 func (noopEventPublisher) Close()                                                            {}
 
 // Event is a published event with a subject and JSON-encoded data.
@@ -142,6 +144,21 @@ type BrokerGroveEvent struct {
 type BrokerStatusEvent struct {
 	BrokerID string `json:"brokerId"`
 	Status   string `json:"status"`
+}
+
+// UserMessageEvent is published when an agent sends a message to a human inbox.
+type UserMessageEvent struct {
+	ID          string `json:"id"`
+	GroveID     string `json:"groveId"`
+	Sender      string `json:"sender"`
+	SenderID    string `json:"senderId"`
+	Recipient   string `json:"recipient"`
+	RecipientID string `json:"recipientId"`
+	Msg         string `json:"msg"`
+	Type        string `json:"type"`
+	Urgent      bool   `json:"urgent,omitempty"`
+	AgentID     string `json:"agentId"`
+	CreatedAt   string `json:"createdAt"`
 }
 
 // NotificationCreatedEvent is published when a user notification is created.
@@ -394,6 +411,30 @@ func (p *ChannelEventPublisher) PublishNotification(_ context.Context, notif *st
 		CreatedAt: notif.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 	p.publish("notification.created", evt)
+}
+
+// PublishUserMessage publishes a user.message event when an agent sends a message
+// to a human. The event is published to user-specific and grove-scoped subjects.
+func (p *ChannelEventPublisher) PublishUserMessage(_ context.Context, msg *store.Message) {
+	evt := UserMessageEvent{
+		ID:          msg.ID,
+		GroveID:     msg.GroveID,
+		Sender:      msg.Sender,
+		SenderID:    msg.SenderID,
+		Recipient:   msg.Recipient,
+		RecipientID: msg.RecipientID,
+		Msg:         msg.Msg,
+		Type:        msg.Type,
+		Urgent:      msg.Urgent,
+		AgentID:     msg.AgentID,
+		CreatedAt:   msg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+	}
+	if msg.RecipientID != "" {
+		p.publish("user."+msg.RecipientID+".message", evt)
+	}
+	if msg.GroveID != "" {
+		p.publish("grove."+msg.GroveID+".user.message", evt)
+	}
 }
 
 // subjectMatchesPattern checks if a subject matches a NATS-style pattern.

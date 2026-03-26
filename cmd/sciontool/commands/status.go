@@ -111,6 +111,14 @@ func runStatusAskUser(message string) {
 		}); err != nil {
 			log.Error("Failed to report to Hub: %v", err)
 		}
+
+		// Also send an outbound message so the question lands in the human's inbox.
+		if err := hubClient.SendOutboundMessage(ctx, hub.OutboundMessage{
+			Msg:  message,
+			Type: "input-needed",
+		}); err != nil {
+			log.Error("Failed to send outbound message: %v", err)
+		}
 	}
 
 	log.Info("Agent asked: %s", message)

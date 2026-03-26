@@ -1,7 +1,7 @@
 # Messages Evolution: Built-In Inbox and Bidirectional Human-Agent Messaging
 
 ## Status
-**In Progress** | March 2026 — Phase 1 complete
+**In Progress** | March 2026 — Phase 1 & 2 complete
 
 ## Problem
 
@@ -493,13 +493,13 @@ The existing `agent-message-viewer` reads from Cloud Logging. With the new messa
 6. ~~Add message persistence to `handleAgentMessage` (write-through)~~
 7. ~~Add message persistence to broadcast handlers~~
 
-### Phase 2: Agent Outbound and `ask_user`
+### Phase 2: Agent Outbound and `ask_user` ✅ COMPLETE
 
-1. Add `POST /api/v1/agents/{id}/outbound-message` Hub handler
-2. Add `SendOutboundMessage` to `sciontool/hub` client
-3. Update `sciontool status ask_user` to dual-send (state + message)
-4. Add recipient resolution logic (implicit → agent creator / subscribers)
-5. Integrate outbound messages with `ChannelRegistry` (Slack, webhook, email)
+1. ~~Add `POST /api/v1/agents/{id}/outbound-message` Hub handler~~
+2. ~~Add `SendOutboundMessage` to `sciontool/hub` client~~
+3. ~~Update `sciontool status ask_user` to dual-send (state + message)~~
+4. ~~Add recipient resolution logic (implicit → agent creator / subscribers)~~
+5. ~~Integrate outbound messages with `ChannelRegistry` (Slack, webhook, email)~~
 
 ### Phase 3: Human Inbox CLI and API
 
