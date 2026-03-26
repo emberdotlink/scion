@@ -464,6 +464,20 @@ export class ScionPageTerminal extends LitElement {
     // needs explicit handling for these since it doesn't natively emit CSI u
     // sequences for modified keys.
     this.terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      // Debug: log all Enter-related events to diagnose Shift+Enter handling
+      if (event.key === 'Enter' || event.keyCode === 13) {
+        console.debug('[Terminal] Enter event:', {
+          type: event.type,
+          key: event.key,
+          code: event.code,
+          keyCode: event.keyCode,
+          shiftKey: event.shiftKey,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          metaKey: event.metaKey,
+        });
+      }
+
       // Shift+Enter: send CSI u sequence (ESC [ 13 ; 2 u) so that tmux and
       // inner applications (e.g. claude-code) can distinguish it from plain
       // Enter.  Without this, xterm.js sends \r for both.
