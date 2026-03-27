@@ -42,6 +42,10 @@ func (r *AppleContainerRuntime) Name() string {
 	return "container"
 }
 
+func (r *AppleContainerRuntime) ExecUser() string {
+	return "scion"
+}
+
 func (r *AppleContainerRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	// Stage file, variable, and secret-map secrets before building args
 	if config.HomeDir != "" && len(config.ResolvedSecrets) > 0 {

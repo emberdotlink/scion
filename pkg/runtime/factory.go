@@ -144,6 +144,10 @@ func (e *ErrorRuntime) Name() string {
 	return "error"
 }
 
+func (e *ErrorRuntime) ExecUser() string {
+	return "scion"
+}
+
 func (e *ErrorRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	return "", e.Err
 }

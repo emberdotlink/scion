@@ -42,6 +42,10 @@ func (r *DockerRuntime) Name() string {
 	return "docker"
 }
 
+func (r *DockerRuntime) ExecUser() string {
+	return "scion"
+}
+
 func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	// Stage file and variable secrets before building args
 	var secretMountSpecs []string

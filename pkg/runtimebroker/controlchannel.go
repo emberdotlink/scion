@@ -77,6 +77,7 @@ func DefaultControlChannelConfig() ControlChannelConfig {
 type AgentLookupResult struct {
 	ContainerID string // Container/pod ID
 	RuntimeName string // Runtime that owns the agent (e.g., "docker", "kubernetes")
+	ExecUser    string // Container user for exec/attach (e.g., "scion" or "root" for rootless Podman)
 	Namespace   string // Kubernetes namespace (empty for non-k8s runtimes)
 
 	// K8sConfig and K8sClientset are set for kubernetes agents so that
@@ -672,7 +673,7 @@ func (c *ControlChannelClient) handlePTYStream(handler *StreamHandler, cols, row
 	}
 
 	// Start the actual PTY session
-	c.handlePTYStreamWithAgent(handler, cols, rows, result.ContainerID, runtimeCmd, result.Namespace, result.K8sConfig, result.K8sClientset)
+	c.handlePTYStreamWithAgent(handler, cols, rows, result.ContainerID, runtimeCmd, result.ExecUser, result.Namespace, result.K8sConfig, result.K8sClientset)
 
 	c.log.Info("PTY stream ended via control channel", "slug", handler.slug)
 

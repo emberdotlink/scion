@@ -114,7 +114,10 @@ func (r *PodmanRuntime) Name() string {
 // user's UID is mapped to container UID 0 and privilege drop is skipped.
 // Exec must match that UID so it can find the tmux session and access the
 // same files.
-func (r *PodmanRuntime) execUser() string {
+// ExecUser implements Runtime. In rootless mode, the child process runs as
+// root (UID 0) because the host user is mapped to container UID 0 and
+// privilege drop is skipped. Exec must match that UID.
+func (r *PodmanRuntime) ExecUser() string {
 	if r.Rootless {
 		return "root"
 	}
@@ -315,7 +318,7 @@ func (r *PodmanRuntime) Attach(ctx context.Context, id string) error {
 		return fmt.Errorf("agent '%s' is not running (status: %s). Use 'scion start %s' to resume it.", id, agent.ContainerStatus, id)
 	}
 
-	return runInteractiveCommand(r.Command, "exec", "-it", "--user", r.execUser(), agent.ContainerID, "tmux", "attach", "-t", "scion")
+	return runInteractiveCommand(r.Command, "exec", "-it", "--user", r.ExecUser(), agent.ContainerID, "tmux", "attach", "-t", "scion")
 }
 
 func (r *PodmanRuntime) ImageExists(ctx context.Context, image string) (bool, error) {
@@ -389,7 +392,7 @@ func (r *PodmanRuntime) Sync(ctx context.Context, id string, direction SyncDirec
 }
 
 func (r *PodmanRuntime) Exec(ctx context.Context, id string, cmd []string) (string, error) {
-	args := append([]string{"exec", "--user", r.execUser(), id}, cmd...)
+	args := append([]string{"exec", "--user", r.ExecUser(), id}, cmd...)
 	return runSimpleCommand(ctx, r.Command, args...)
 }
 

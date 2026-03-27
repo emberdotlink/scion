@@ -68,6 +68,10 @@ func (r *KubernetesRuntime) Name() string {
 	return "kubernetes"
 }
 
+func (r *KubernetesRuntime) ExecUser() string {
+	return "scion"
+}
+
 // resolveNamespace determines the namespace for a pod by looking up the
 // scion.namespace annotation on the pod itself. Falls back to DefaultNamespace
 // if the pod is not found or has no annotation.

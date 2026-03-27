@@ -111,17 +111,17 @@ echo "$@"
 	})
 }
 
-func TestPodmanRuntime_ExecUser(t *testing.T) {
+func TestPodmanRuntime_ExecUserMethod(t *testing.T) {
 	t.Run("rootful returns scion", func(t *testing.T) {
 		rt := &PodmanRuntime{Rootless: false}
-		if got := rt.execUser(); got != "scion" {
+		if got := rt.ExecUser(); got != "scion" {
 			t.Errorf("expected 'scion', got %q", got)
 		}
 	})
 
 	t.Run("rootless returns root", func(t *testing.T) {
 		rt := &PodmanRuntime{Rootless: true}
-		if got := rt.execUser(); got != "root" {
+		if got := rt.ExecUser(); got != "root" {
 			t.Errorf("expected 'root', got %q", got)
 		}
 	})

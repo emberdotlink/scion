@@ -51,12 +51,16 @@ const (
 // available. After starting a container, sciontool init needs time to set up
 // the user, run pre-start hooks, and launch the tmux session. Without this
 // wait, an immediate attach would fail with "no sessions".
-func waitForTmuxSession(ctx context.Context, runtimeCmd, containerID, namespace string, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) error {
+func waitForTmuxSession(ctx context.Context, runtimeCmd, containerID, namespace, execUser string, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) error {
 	ctx, cancel := context.WithTimeout(ctx, tmuxSessionWaitTimeout)
 	defer cancel()
 
 	ticker := time.NewTicker(tmuxSessionPollInterval)
 	defer ticker.Stop()
+
+	if execUser == "" {
+		execUser = "scion"
+	}
 
 	isK8s := runtimeCmd == "kubernetes" || runtimeCmd == "k8s"
 
@@ -69,9 +73,9 @@ func waitForTmuxSession(ctx context.Context, runtimeCmd, containerID, namespace 
 			if isK8s && k8sConfig != nil && k8sClientset != nil {
 				// The tmux session runs as the scion user (via sciontool init privilege drop),
 				// so we must check as that user — root can't see scion's tmux socket.
-				checkErr = k8sExecCheck(ctx, k8sConfig, k8sClientset, namespace, containerID, []string{"su", "-", "scion", "-c", "tmux has-session -t scion"})
+				checkErr = k8sExecCheck(ctx, k8sConfig, k8sClientset, namespace, containerID, []string{"su", "-", execUser, "-c", "tmux has-session -t scion"})
 			} else {
-				cmd := exec.CommandContext(ctx, runtimeCmd, "exec", "--user", "scion", containerID, "tmux", "has-session", "-t", "scion")
+				cmd := exec.CommandContext(ctx, runtimeCmd, "exec", "--user", execUser, containerID, "tmux", "has-session", "-t", "scion")
 				checkErr = cmd.Run()
 			}
 			if checkErr == nil {
@@ -174,7 +178,7 @@ func (s *Server) handleAgentAttach(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Attach session started", "agent_id", agentID, "containerID", containerID, "runtime", runtimeCmd)
 
 	// Start PTY session
-	session := newLocalPTYSession(ctx, agentID, containerID, runtimeCmd, result.Namespace, conn, cols, rows, result.K8sConfig, result.K8sClientset)
+	session := newLocalPTYSession(ctx, agentID, containerID, runtimeCmd, result.ExecUser, result.Namespace, conn, cols, rows, result.K8sConfig, result.K8sClientset)
 	if err := session.Run(); err != nil && err != io.EOF {
 		slog.Error("Attach session error", "agent_id", agentID, "error", err)
 	}
@@ -209,6 +213,7 @@ type LocalPTYSession struct {
 	agentID     string
 	containerID string
 	runtimeCmd  string // Container runtime command (docker, container, kubernetes, etc.)
+	execUser    string // Container user for exec (e.g., "scion" or "root" for rootless Podman)
 	namespace   string // Kubernetes namespace (empty for non-k8s runtimes)
 	conn        *websocket.Conn
 	cols        int
@@ -224,9 +229,12 @@ type LocalPTYSession struct {
 }
 
 // newLocalPTYSession creates a new local PTY session.
-func newLocalPTYSession(ctx context.Context, agentID, containerID, runtimeCmd, namespace string, conn *websocket.Conn, cols, rows int, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) *LocalPTYSession {
+func newLocalPTYSession(ctx context.Context, agentID, containerID, runtimeCmd, execUser, namespace string, conn *websocket.Conn, cols, rows int, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) *LocalPTYSession {
 	if runtimeCmd == "" {
 		runtimeCmd = "docker"
+	}
+	if execUser == "" {
+		execUser = "scion"
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	return &LocalPTYSession{
@@ -235,6 +243,7 @@ func newLocalPTYSession(ctx context.Context, agentID, containerID, runtimeCmd, n
 		agentID:      agentID,
 		containerID:  containerID,
 		runtimeCmd:   runtimeCmd,
+		execUser:     execUser,
 		namespace:    namespace,
 		conn:         conn,
 		cols:         cols,
@@ -293,7 +302,7 @@ func (s *LocalPTYSession) runK8sExec() error {
 		namespace = "default"
 	}
 
-	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, namespace, s.k8sConfig, s.k8sClientset); err != nil {
+	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, namespace, s.execUser, s.k8sConfig, s.k8sClientset); err != nil {
 		return err
 	}
 
@@ -423,13 +432,13 @@ func (s *LocalPTYSession) runK8sExec() error {
 
 // startDockerExec starts a docker exec session with tmux attach using a real PTY.
 func (s *LocalPTYSession) startDockerExec() error {
-	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, s.namespace, nil, nil); err != nil {
+	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, s.namespace, s.execUser, nil, nil); err != nil {
 		return err
 	}
 
 	args := []string{
 		"exec", "-it",
-		"--user", "scion",
+		"--user", s.execUser,
 		s.containerID,
 		"tmux", "attach-session", "-t", "scion",
 	}
@@ -540,6 +549,7 @@ type StreamPTYHandler struct {
 	slug        string
 	containerID string
 	runtimeCmd  string // Container runtime command (docker, container, kubernetes, etc.)
+	execUser    string // Container user for exec (e.g., "scion" or "root" for rootless Podman)
 	namespace   string // Kubernetes namespace (empty for non-k8s runtimes)
 	cols        int
 	rows        int
@@ -555,14 +565,18 @@ type StreamPTYHandler struct {
 }
 
 // NewStreamPTYHandler creates a handler for a PTY stream from the control channel.
-func NewStreamPTYHandler(client *ControlChannelClient, handler *StreamHandler, containerID, runtimeCmd, namespace string, cols, rows int, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) *StreamPTYHandler {
+func NewStreamPTYHandler(client *ControlChannelClient, handler *StreamHandler, containerID, runtimeCmd, execUser, namespace string, cols, rows int, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) *StreamPTYHandler {
 	ctx, cancel := context.WithCancel(context.Background())
+	if execUser == "" {
+		execUser = "scion"
+	}
 	return &StreamPTYHandler{
 		client:       client,
 		handler:      handler,
 		slug:         handler.slug,
 		containerID:  containerID,
 		runtimeCmd:   runtimeCmd,
+		execUser:     execUser,
 		namespace:    namespace,
 		cols:         cols,
 		rows:         rows,
@@ -636,7 +650,7 @@ func (h *StreamPTYHandler) runK8sExec() error {
 	}
 
 	// Wait for tmux session readiness using Go client
-	if err := waitForTmuxSession(h.ctx, h.runtimeCmd, h.containerID, namespace, h.k8sConfig, h.k8sClientset); err != nil {
+	if err := waitForTmuxSession(h.ctx, h.runtimeCmd, h.containerID, namespace, h.execUser, h.k8sConfig, h.k8sClientset); err != nil {
 		return err
 	}
 
@@ -800,13 +814,13 @@ func (h *StreamPTYHandler) startDockerExec() error {
 	}
 
 	// Wait for the tmux session to be ready before attaching
-	if err := waitForTmuxSession(h.ctx, runtimeCmd, h.containerID, h.namespace, nil, nil); err != nil {
+	if err := waitForTmuxSession(h.ctx, runtimeCmd, h.containerID, h.namespace, h.execUser, nil, nil); err != nil {
 		return err
 	}
 
 	args := []string{
 		"exec", "-it",
-		"--user", "scion",
+		"--user", h.execUser,
 		h.containerID,
 		"tmux", "attach-session", "-t", "scion",
 	}
@@ -886,8 +900,8 @@ func (h *StreamPTYHandler) Close() {
 }
 
 // handlePTYStreamWithAgent is called by the control channel to handle PTY streams.
-func (c *ControlChannelClient) handlePTYStreamWithAgent(handler *StreamHandler, cols, rows int, containerID, runtimeCmd, namespace string, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) {
-	ptyHandler := NewStreamPTYHandler(c, handler, containerID, runtimeCmd, namespace, cols, rows, k8sConfig, k8sClientset)
+func (c *ControlChannelClient) handlePTYStreamWithAgent(handler *StreamHandler, cols, rows int, containerID, runtimeCmd, execUser, namespace string, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) {
+	ptyHandler := NewStreamPTYHandler(c, handler, containerID, runtimeCmd, execUser, namespace, cols, rows, k8sConfig, k8sClientset)
 	if err := ptyHandler.Run(); err != nil && err != io.EOF {
 		slog.Error("PTY stream error", "slug", handler.slug, "error", err)
 	}

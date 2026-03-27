@@ -1012,9 +1012,18 @@ func (s *Server) LookupAgent(ctx context.Context, slug string) (*AgentLookupResu
 		containerID = ag.ID
 	}
 
+	// Determine the exec user from the runtime that owns this agent.
+	execUser := "scion"
+	if matchedRuntime != nil {
+		execUser = matchedRuntime.ExecUser()
+	} else if s.runtime != nil {
+		execUser = s.runtime.ExecUser()
+	}
+
 	result := &AgentLookupResult{
 		ContainerID: containerID,
 		RuntimeName: runtimeName,
+		ExecUser:    execUser,
 	}
 
 	// Include K8s metadata if available
