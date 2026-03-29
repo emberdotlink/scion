@@ -135,6 +135,14 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		return fmt.Errorf("failed to get current schema version: %w", err)
 	}
 
+	// Migrations that require PRAGMA foreign_keys=OFF around the transaction.
+	// SQLite ignores PRAGMA changes inside transactions, so we must disable
+	// foreign keys before BeginTx and re-enable after Commit. Without this,
+	// DROP TABLE on a parent table triggers ON DELETE CASCADE on child tables.
+	foreignKeysOffMigrations := map[int]bool{
+		40: true, // V40 drops and recreates the groves table
+	}
+
 	// Apply pending migrations
 	for i, migration := range migrations {
 		version := i + 1
@@ -142,23 +150,48 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 			continue
 		}
 
+		needsFKOff := foreignKeysOffMigrations[version]
+		if needsFKOff {
+			if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+				return fmt.Errorf("failed to disable foreign keys for migration %d: %w", version, err)
+			}
+		}
+
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
+			if needsFKOff {
+				s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+			}
 			return fmt.Errorf("failed to start transaction for migration %d: %w", version, err)
 		}
 
 		if _, err := tx.ExecContext(ctx, migration); err != nil {
 			tx.Rollback()
+			if needsFKOff {
+				s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+			}
 			return fmt.Errorf("failed to apply migration %d: %w", version, err)
 		}
 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
 			tx.Rollback()
+			if needsFKOff {
+				s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+			}
 			return fmt.Errorf("failed to record migration %d: %w", version, err)
 		}
 
 		if err := tx.Commit(); err != nil {
+			if needsFKOff {
+				s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+			}
 			return fmt.Errorf("failed to commit migration %d: %w", version, err)
+		}
+
+		if needsFKOff {
+			if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+				return fmt.Errorf("failed to re-enable foreign keys after migration %d: %w", version, err)
+			}
 		}
 	}
 
@@ -895,10 +928,13 @@ CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
 // Migration V40: Allow multiple groves per git remote (drop UNIQUE on git_remote),
 // and enforce slug uniqueness (add UNIQUE on slug). Requires table recreation
 // because SQLite does not support ALTER TABLE DROP CONSTRAINT.
+//
+// IMPORTANT: This migration requires foreign_keys=OFF around the DROP TABLE.
+// SQLite ignores PRAGMA changes inside transactions, so the migration runner
+// handles this via the foreignKeysOffMigrations set. The PRAGMA statements are
+// intentionally NOT included in the SQL string.
 const migrationV40 = `
-PRAGMA foreign_keys=OFF;
-
-CREATE TABLE groves_new (
+CREATE TABLE IF NOT EXISTS groves_new (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
 	slug TEXT NOT NULL UNIQUE,
@@ -918,7 +954,7 @@ CREATE TABLE groves_new (
 	git_identity TEXT
 );
 
-INSERT INTO groves_new SELECT
+INSERT OR IGNORE INTO groves_new SELECT
 	id, name, slug, git_remote, labels, annotations,
 	created_at, updated_at, created_by, owner_id, visibility,
 	default_runtime_broker_id, shared_dirs,
@@ -926,15 +962,13 @@ INSERT INTO groves_new SELECT
 	git_identity
 FROM groves;
 
-DROP TABLE groves;
+DROP TABLE IF EXISTS groves;
 ALTER TABLE groves_new RENAME TO groves;
 
 CREATE INDEX IF NOT EXISTS idx_groves_slug ON groves(slug);
 CREATE INDEX IF NOT EXISTS idx_groves_git_remote ON groves(git_remote);
 CREATE INDEX IF NOT EXISTS idx_groves_owner ON groves(owner_id);
 CREATE INDEX IF NOT EXISTS idx_groves_default_runtime_broker ON groves(default_runtime_broker_id);
-
-PRAGMA foreign_keys=ON;
 `
 
 // Helper functions for JSON marshaling/unmarshaling

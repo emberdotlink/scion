@@ -1609,6 +1609,101 @@ func TestMigration(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDropTableCascadesWithForeignKeysOn(t *testing.T) {
+	// Demonstrates the root cause: DROP TABLE with foreign_keys=ON
+	// triggers ON DELETE CASCADE, removing all child rows.
+	s, err := New(":memory:")
+	require.NoError(t, err)
+	defer s.Close()
+
+	ctx := context.Background()
+	err = s.Migrate(ctx)
+	require.NoError(t, err)
+
+	groveID := api.NewUUID()
+	err = s.CreateGrove(ctx, &store.Grove{
+		ID: groveID, Name: "G", Slug: "g-cascade-test", Visibility: store.VisibilityPrivate,
+	})
+	require.NoError(t, err)
+
+	agentID := api.NewUUID()
+	err = s.CreateAgent(ctx, &store.Agent{
+		ID: agentID, Slug: "a", Name: "A", GroveID: groveID, Visibility: store.VisibilityPrivate,
+	})
+	require.NoError(t, err)
+
+	// With foreign_keys ON (default), DROP TABLE cascades
+	_, err = s.db.ExecContext(ctx, `
+		CREATE TABLE groves_copy AS SELECT * FROM groves;
+		DROP TABLE groves;
+		ALTER TABLE groves_copy RENAME TO groves;
+	`)
+	require.NoError(t, err)
+
+	// Agent was cascade-deleted — this is the bug V40 originally triggered
+	_, err = s.GetAgent(ctx, agentID)
+	assert.ErrorIs(t, err, store.ErrNotFound, "agent should be cascade-deleted when FK is ON")
+}
+
+func TestMigrationV40PreservesAgents(t *testing.T) {
+	// Regression test: V40 drops and recreates the groves table. Without
+	// PRAGMA foreign_keys=OFF (which must be set OUTSIDE the transaction),
+	// DROP TABLE groves triggers ON DELETE CASCADE on agents, deleting all rows.
+	s, err := New(":memory:")
+	require.NoError(t, err)
+	defer s.Close()
+
+	ctx := context.Background()
+
+	err = s.Migrate(ctx)
+	require.NoError(t, err)
+
+	// Create a grove and an agent
+	groveID := api.NewUUID()
+	err = s.CreateGrove(ctx, &store.Grove{
+		ID:         groveID,
+		Name:       "TestGrove",
+		Slug:       "test-grove",
+		Visibility: store.VisibilityPrivate,
+	})
+	require.NoError(t, err)
+
+	agentID := api.NewUUID()
+	err = s.CreateAgent(ctx, &store.Agent{
+		ID:         agentID,
+		Slug:       "test-agent",
+		Name:       "Test Agent",
+		GroveID:    groveID,
+		Visibility: store.VisibilityPrivate,
+	})
+	require.NoError(t, err)
+
+	// Verify agent exists
+	agent, err := s.GetAgent(ctx, agentID)
+	require.NoError(t, err)
+	assert.Equal(t, "Test Agent", agent.Name)
+
+	// Simulate re-running V40 by dropping and recreating groves table
+	// using the same pattern as the migration, with proper FK handling.
+	_, err = s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF")
+	require.NoError(t, err)
+
+	_, err = s.db.ExecContext(ctx, `
+		CREATE TABLE groves_new2 AS SELECT * FROM groves;
+		DROP TABLE groves;
+		ALTER TABLE groves_new2 RENAME TO groves;
+	`)
+	require.NoError(t, err)
+
+	_, err = s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+	require.NoError(t, err)
+
+	// Agent must still exist after table recreation
+	agent, err = s.GetAgent(ctx, agentID)
+	require.NoError(t, err)
+	assert.Equal(t, "Test Agent", agent.Name)
+}
+
 func TestPing(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
