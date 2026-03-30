@@ -34,7 +34,7 @@ func TestGroveInitNestedDetection(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	defer os.Setenv("HOME", origHome)
 
-	t.Run("blocks nested grove inside project", func(t *testing.T) {
+	t.Run("allows nested grove inside project", func(t *testing.T) {
 		// Create temp project with .scion
 		tmpHome := t.TempDir()
 		os.Setenv("HOME", tmpHome)
@@ -48,22 +48,15 @@ func TestGroveInitNestedDetection(t *testing.T) {
 		require.NoError(t, os.Mkdir(subDir, 0755))
 		require.NoError(t, os.Chdir(subDir))
 
-		// Simulate the nested grove check logic
-		grovePath, rootDir, found := config.GetEnclosingGrovePath()
+		// The enclosing grove check finds the parent grove
+		_, rootDir, found := config.GetEnclosingGrovePath()
 		assert.True(t, found, "should find enclosing grove")
 
 		wd, _ := os.Getwd()
-		if filepath.Clean(wd) == filepath.Clean(rootDir) {
-			t.Skip("same directory - would block as re-init")
-		}
-
-		// Check if this is the global grove
-		globalDir, err := config.GetGlobalDir()
-		assert.NoError(t, err)
-
-		// Should NOT match global - this is a project grove
-		assert.NotEqual(t, filepath.Clean(grovePath), filepath.Clean(globalDir),
-			"nested project grove should NOT be treated as global")
+		// We're in a subdirectory, not the same as the grove root
+		assert.NotEqual(t, filepath.Clean(wd), filepath.Clean(rootDir),
+			"should be in a subdirectory of the enclosing grove")
+		// Nested init should be allowed — no error expected
 	})
 
 	t.Run("allows project grove when only global exists", func(t *testing.T) {
@@ -97,7 +90,7 @@ func TestGroveInitNestedDetection(t *testing.T) {
 			"found grove should be the global grove - initialization should proceed")
 	})
 
-	t.Run("blocks nested grove inside non-global project", func(t *testing.T) {
+	t.Run("allows nested grove inside non-global project", func(t *testing.T) {
 		// Create temp HOME without global grove
 		tmpHome := t.TempDir()
 		os.Setenv("HOME", tmpHome)
@@ -108,21 +101,15 @@ func TestGroveInitNestedDetection(t *testing.T) {
 		scionDir := filepath.Join(projectDir, ".scion")
 		require.NoError(t, os.Mkdir(scionDir, 0755))
 
-		// Try to init from a subdirectory
+		// Try to init from a subdirectory — this is now allowed
 		subDir := filepath.Join(projectDir, "packages", "sub-package")
 		require.NoError(t, os.MkdirAll(subDir, 0755))
 		require.NoError(t, os.Chdir(subDir))
 
 		// The enclosing grove check will find the project's .scion
-		grovePath, _, found := config.GetEnclosingGrovePath()
+		_, _, found := config.GetEnclosingGrovePath()
 		assert.True(t, found, "should find enclosing project grove")
 
-		// Check if this is the global grove
-		globalDir, err := config.GetGlobalDir()
-		assert.NoError(t, err)
-
-		// grovePath should NOT equal globalDir - this should be blocked
-		assert.NotEqual(t, filepath.Clean(grovePath), filepath.Clean(globalDir),
-			"found grove is not global - should block nested initialization")
+		// Nested initialization is now allowed — no error expected
 	})
 }
