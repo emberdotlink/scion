@@ -408,14 +408,14 @@ CREATE TABLE grove_sync_state (
 
 ## 9. Implementation Plan
 
-### Phase 1: Hub WebDAV Endpoint
+### Phase 1: Hub WebDAV Endpoint ✅ Complete
 
-- Implement WebDAV handler using `golang.org/x/net/webdav`
-- Mount at `/api/v1/groves/{id}/dav/` with grove-scoped authorization
-- Serve hub-native grove workspaces directly from filesystem
-- File exclusion filter (`.git/`, `.scion/`, `node_modules/`, `*.env`)
-- Add `grove_sync_state` table for tracking sync metadata
-- Add `GET /api/v1/groves/{id}/sync/status` endpoint
+- ✅ Implement WebDAV handler using `golang.org/x/net/webdav`
+- ✅ Mount at `/api/v1/groves/{id}/dav/` with grove-scoped authorization
+- ✅ Serve hub-native grove workspaces directly from filesystem
+- ✅ File exclusion filter (`.git/`, `.scion/`, `node_modules/`, `*.env`)
+- ✅ Add `grove_sync_state` table for tracking sync metadata
+- ✅ Add `GET /api/v1/groves/{id}/sync/status` endpoint
 
 ### Phase 2: CLI Grove Sync Command
 
