@@ -18,7 +18,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -544,6 +546,8 @@ func New(cfg ServerConfig, s store.Store) *Server {
 	agentKey, err := srv.ensureSigningKey(ctx, SecretKeyAgentSigningKey, cfg.AgentTokenConfig.SigningKey)
 	if err == nil {
 		cfg.AgentTokenConfig.SigningKey = agentKey
+	} else {
+		slog.Warn("Failed to load agent signing key, will use ephemeral key", "error", err)
 	}
 	tokenService, err := NewAgentTokenService(cfg.AgentTokenConfig)
 	if err != nil {
@@ -556,12 +560,16 @@ func New(cfg ServerConfig, s store.Store) *Server {
 	userKey, err := srv.ensureSigningKey(ctx, SecretKeyUserSigningKey, cfg.UserTokenConfig.SigningKey)
 	if err == nil {
 		cfg.UserTokenConfig.SigningKey = userKey
+	} else {
+		slog.Warn("Failed to load user signing key, will use ephemeral key", "error", err)
 	}
 	userTokenService, err := NewUserTokenService(cfg.UserTokenConfig)
 	if err != nil {
 		slog.Warn("Failed to initialize user token service", "error", err)
 	} else {
 		srv.userTokenService = userTokenService
+		fp := sha256.Sum256(userTokenService.config.SigningKey)
+		slog.Info("User token service initialized", "key_fingerprint", hex.EncodeToString(fp[:8]))
 	}
 
 	// Initialize user access token service

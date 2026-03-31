@@ -19,6 +19,7 @@ package hub
 import (
 	"context"
 	"encoding/base64"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -121,6 +122,76 @@ func TestServer_PersistentSigningKeys_WithHubID(t *testing.T) {
 	}
 	if !foundKeys[SecretKeyUserSigningKey] {
 		t.Error("user_signing_key should appear in hub secret list")
+	}
+}
+
+func TestServer_UserTokenSurvivesRestart(t *testing.T) {
+	// Simulate the exact production scenario: sign in, restart server, validate token.
+	// Uses a file-based SQLite DB to match production behavior.
+	dbPath := filepath.Join(t.TempDir(), "test-hub.db")
+	s, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create test store: %v", err)
+	}
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Fatalf("failed to migrate test store: %v", err)
+	}
+
+	cfg := DefaultServerConfig()
+	cfg.HubID = "test-hub-456"
+
+	// Run 1: create server, generate a user token
+	srv1 := New(cfg, s)
+	t.Cleanup(func() { srv1.Shutdown(context.Background()) })
+	if srv1.userTokenService == nil {
+		t.Fatal("userTokenService not initialized")
+	}
+
+	accessToken, _, _, err := srv1.userTokenService.GenerateTokenPair(
+		"user-1", "test@example.com", "Test User", store.UserRoleAdmin, ClientTypeWeb,
+	)
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+
+	// Verify it works on the same server
+	if _, err := srv1.userTokenService.ValidateUserToken(accessToken); err != nil {
+		t.Fatalf("Token should validate on same server: %v", err)
+	}
+
+	key1 := srv1.userTokenService.config.SigningKey
+
+	// Close the store and reopen from the same file (simulates process restart)
+	s.Close()
+	s2, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to reopen test store: %v", err)
+	}
+	if err := s2.Migrate(context.Background()); err != nil {
+		t.Fatalf("failed to migrate reopened store: %v", err)
+	}
+
+	// Run 2: create a NEW server with the reopened store
+	srv2 := New(cfg, s2)
+	t.Cleanup(func() { srv2.Shutdown(context.Background()) })
+	if srv2.userTokenService == nil {
+		t.Fatal("userTokenService not initialized on srv2")
+	}
+
+	key2 := srv2.userTokenService.config.SigningKey
+
+	// Verify keys match
+	if string(key1) != string(key2) {
+		t.Errorf("signing keys differ after restart: key1=%x key2=%x", key1[:8], key2[:8])
+	}
+
+	// The token from Run 1 must validate on Run 2
+	claims, err := srv2.userTokenService.ValidateUserToken(accessToken)
+	if err != nil {
+		t.Fatalf("Token from Run 1 should validate after restart: %v", err)
+	}
+	if claims.Email != "test@example.com" {
+		t.Errorf("expected email test@example.com, got %s", claims.Email)
 	}
 }
 

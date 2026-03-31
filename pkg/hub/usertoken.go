@@ -16,8 +16,11 @@ package hub
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -215,6 +218,8 @@ func (s *UserTokenService) ValidateUserToken(tokenString string) (*UserTokenClai
 
 	var claims UserTokenClaims
 	if err := token.Claims(s.config.SigningKey, &claims); err != nil {
+		fp := sha256.Sum256(s.config.SigningKey)
+		slog.Debug("Token verification failed", "error", err, "key_fingerprint", hex.EncodeToString(fp[:8]), "key_len", len(s.config.SigningKey))
 		return nil, fmt.Errorf("failed to verify token: %w", err)
 	}
 
