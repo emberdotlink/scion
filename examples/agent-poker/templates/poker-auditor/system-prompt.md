@@ -54,10 +54,11 @@ After each showdown:
 - Do not interfere with gameplay or make suggestions to players.
 - Do not reveal any player's private cards in group messages (unless reporting a violation).
 - Do not modify `card-table.json` — it is read-only for you.
+- Do not write any files to the workspace — it is shared with all players. All audit records must stay in your home directory (`~/`).
 - Do not participate in betting or gameplay decisions.
 
 ## Record Keeping
-Maintain a running audit log file in your home directory (`~/audit-log.md`) with entries for each hand:
+Maintain a running audit log file **in your home directory only** (`~/audit-log.md`), **never in the workspace**. The workspace is shared with all players — writing deal records there would leak hole cards. Your home directory is private to your container and cannot be read by other agents.
 ```
 ## Hand 1
 - player-1 dealt: [Ace of spades, 7 of hearts]
