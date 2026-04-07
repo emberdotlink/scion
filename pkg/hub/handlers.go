@@ -1893,10 +1893,17 @@ func (s *Server) handleAgentOutboundMessage(w http.ResponseWriter, r *http.Reque
 		if err := bp.PublishUserMessage(ctx, agent.GroveID, recipientID, structuredMsg); err != nil {
 			s.messageLog.Error("Failed to dispatch outbound message through broker",
 				"agent_id", agent.ID, "recipient_id", recipientID, "error", err)
+		} else {
+			s.messageLog.Info("Outbound message dispatched through broker",
+				"agent_id", agent.ID, "recipient_id", recipientID, "grove_id", agent.GroveID)
 		}
-	} else if s.channelRegistry != nil && s.channelRegistry.Len() > 0 {
-		// Fall back to external channels (Slack, webhook, email) when no broker is configured.
-		s.channelRegistry.Dispatch(ctx, structuredMsg)
+	} else {
+		s.messageLog.Debug("No message broker proxy available for outbound message",
+			"agent_id", agent.ID, "recipient_id", recipientID)
+		if s.channelRegistry != nil && s.channelRegistry.Len() > 0 {
+			// Fall back to external channels (Slack, webhook, email) when no broker is configured.
+			s.channelRegistry.Dispatch(ctx, structuredMsg)
+		}
 	}
 
 	s.logMessage("outbound message sent",
