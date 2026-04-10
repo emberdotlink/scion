@@ -18,8 +18,12 @@ FROM ${BASE_IMAGE}
 
 ARG CODEX_CLI_VERSION=latest
 
-# install codex and clean up
+RUN mkdir -p /home/scion/.codex /home/scion/.codex/skills && \
+  chown -R scion:scion /home/scion/.codex
+
+# install codex, expose it on standard shell PATH, and clean up
 RUN npm install -g @openai/codex@${CODEX_CLI_VERSION} \
+  && ln -sf /usr/local/share/npm-global/bin/codex /usr/local/bin/codex \
   && npm cache clean --force
 
 # default entrypoint when none specified
