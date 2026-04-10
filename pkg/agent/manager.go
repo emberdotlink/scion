@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/api"
+	"github.com/GoogleCloudPlatform/scion/pkg/config"
 	"github.com/GoogleCloudPlatform/scion/pkg/harness"
 	"github.com/GoogleCloudPlatform/scion/pkg/runtime"
 	"github.com/GoogleCloudPlatform/scion/pkg/util"
@@ -101,9 +102,20 @@ func (m *AgentManager) Delete(ctx context.Context, agentID string, deleteFiles b
 	util.Debugf("delete: mgr.Delete container list completed in %v", time.Since(listStart))
 	containerExists := false
 	var targetID string
+	// Resolve grove name from grovePath (if provided) to scope the container lookup
+	deletionGroveName := ""
+	if grovePath != "" {
+		if resolvedDir, err := config.GetResolvedProjectDir(grovePath); err == nil {
+			deletionGroveName = config.GetGroveName(resolvedDir)
+		}
+	}
 	if err == nil {
 		for _, a := range agents {
 			if a.Name == agentID || a.ContainerID == agentID || strings.TrimPrefix(a.Name, "/") == agentID || strings.EqualFold(a.Name, agentID) {
+				// If grove info is available, skip containers from a different grove
+				if deletionGroveName != "" && !matchAgentGrove(a, deletionGroveName, "") {
+					continue
+				}
 				containerExists = true
 				targetID = a.ContainerID
 				break

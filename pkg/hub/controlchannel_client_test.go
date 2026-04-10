@@ -106,6 +106,7 @@ func TestControlChannelBrokerClient_StartAgentSignsTunneledRequest(t *testing.T)
 		"broker-1",
 		"unused",
 		"agent-1",
+		"grove-id-1",
 		"run task",
 		"/tmp/grove",
 		"grove-slug",
@@ -131,8 +132,9 @@ func TestControlChannelBrokerClient_StartAgentSignsTunneledRequest(t *testing.T)
 	if got := tunnel.lastRequest.Method; got != http.MethodPost {
 		t.Fatalf("expected POST method, got %s", got)
 	}
-	if got := tunnel.lastRequest.Path; got != "/api/v1/agents/agent-1/start" {
-		t.Fatalf("unexpected path: %s", got)
+	expectedPath := "/api/v1/agents/agent-1/start?groveId=grove-id-1"
+	if got := tunnel.lastRequest.Path; got != expectedPath {
+		t.Fatalf("unexpected path: %s (expected %s)", got, expectedPath)
 	}
 }
 

@@ -34,38 +34,49 @@ import (
 )
 
 func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.AgentInfo, error) {
-	// 0. Check if container already exists
-	agents, err := m.Runtime.List(ctx, nil)
-	if err == nil {
-		for _, a := range agents {
-			if a.ContainerID == opts.Name || strings.EqualFold(a.Name, opts.Name) || strings.EqualFold(strings.TrimPrefix(a.Name, "/"), opts.Name) {
-				status := strings.ToLower(a.ContainerStatus)
-				isRunning := strings.HasPrefix(status, "up") || status == "running"
-				if isRunning {
-					// If a new task is provided, we might want to recreate even if running
-					// but if no task provided, we just return the running one
-					if opts.Task == "" {
-						a.Detached = true
-						if opts.Detached != nil {
-							a.Detached = *opts.Detached
-						}
-						a.Phase = "running"
-						return &a, nil
-					}
-				}
-				// If it exists but not running (or we have a new task), we delete it so we can recreate it
-				if err := m.Runtime.Delete(ctx, a.ContainerID); err != nil {
-					return nil, fmt.Errorf("failed to cleanup existing container: %w", err)
-				}
-			}
-		}
-	}
-
+	// Resolve grove name early so we can scope the container lookup below.
 	projectDir, err := config.GetResolvedProjectDir(opts.GrovePath)
 	if err != nil {
 		return nil, err
 	}
 	groveName := config.GetGroveName(projectDir)
+
+	// Determine the grove ID for label-based filtering. In broker/hosted mode
+	// this comes from the SCION_GROVE_ID env var injected by the hub dispatcher.
+	groveID := ""
+	if opts.Env != nil {
+		groveID = opts.Env["SCION_GROVE_ID"]
+	}
+
+	// 0. Check if container already exists (scoped to this grove)
+	slug := api.Slugify(opts.Name)
+	agents, err := m.Runtime.List(ctx, map[string]string{"scion.name": slug})
+	if err == nil {
+		for _, a := range agents {
+			// Skip agents from a different grove
+			if !matchAgentGrove(a, groveName, groveID) {
+				continue
+			}
+			status := strings.ToLower(a.ContainerStatus)
+			isRunning := strings.HasPrefix(status, "up") || status == "running"
+			if isRunning {
+				// If a new task is provided, we might want to recreate even if running
+				// but if no task provided, we just return the running one
+				if opts.Task == "" {
+					a.Detached = true
+					if opts.Detached != nil {
+						a.Detached = *opts.Detached
+					}
+					a.Phase = "running"
+					return &a, nil
+				}
+			}
+			// If it exists but not running (or we have a new task), we delete it so we can recreate it
+			if err := m.Runtime.Delete(ctx, a.ContainerID); err != nil {
+				return nil, fmt.Errorf("failed to cleanup existing container: %w", err)
+			}
+		}
+	}
 
 	// If resuming, verify the agent exists before proceeding
 	if opts.Resume {
@@ -674,7 +685,7 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	}
 
 	runCfg := runtime.RunConfig{
-		Name:               opts.Name,
+		Name:               containerName(groveName, opts.Name),
 		Template:           template,
 		UnixUsername:       unixUsername,
 		Image:              resolvedImage,
@@ -784,7 +795,6 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	_ = UpdateAgentConfig(opts.Name, opts.GrovePath, status, m.Runtime.Name(), profileName)
 
 	// Fetch fresh info and verify the container is actually running
-	slug := api.Slugify(opts.Name)
 	allAgents, err := m.Runtime.List(ctx, map[string]string{"scion.name": slug})
 	if err == nil {
 		for _, a := range allAgents {
@@ -835,6 +845,41 @@ func filterWorkspaceVolume(volumes []api.VolumeMount) []api.VolumeMount {
 		}
 	}
 	return filtered
+}
+
+// matchAgentGrove returns true if the agent belongs to the given grove.
+// It checks the grove_id label first (authoritative in hosted mode), then
+// falls back to the grove name label.
+func matchAgentGrove(a api.AgentInfo, groveName, groveID string) bool {
+	// If we have a groveID, check the grove_id label (authoritative)
+	if groveID != "" {
+		if labelGroveID := a.Labels["scion.grove_id"]; labelGroveID != "" {
+			return labelGroveID == groveID
+		}
+		if a.GroveID != "" {
+			return a.GroveID == groveID
+		}
+	}
+	// Fall back to grove name matching
+	if groveName != "" {
+		if labelGrove := a.Labels["scion.grove"]; labelGrove != "" {
+			return labelGrove == groveName
+		}
+		if a.Grove != "" {
+			return a.Grove == groveName
+		}
+	}
+	// No grove info on either side — match for backward compatibility
+	return true
+}
+
+// containerName returns a grove-scoped container name to prevent Docker name
+// collisions when agents with the same name exist in different groves.
+func containerName(groveName, agentName string) string {
+	if groveName != "" {
+		return groveName + "--" + agentName
+	}
+	return agentName
 }
 
 func buildAgentEnv(scionCfg *api.ScionConfig, extraEnv map[string]string) ([]string, []string, []string) {

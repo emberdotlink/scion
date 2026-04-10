@@ -260,8 +260,11 @@ func (r *PodmanRuntime) List(ctx context.Context, labelFilter map[string]string)
 		}
 
 		if match {
-			name := ""
-			if len(c.Names) > 0 {
+			// Prefer the scion.name label (slugified) over Podman container name,
+			// consistent with the Docker runtime. This ensures grove-scoped
+			// container names don't leak into display/lookup paths.
+			name := labels["scion.name"]
+			if name == "" && len(c.Names) > 0 {
 				name = c.Names[0]
 			}
 
