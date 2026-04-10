@@ -141,17 +141,18 @@ func generateDownloadURLs(ctx context.Context, stor storage.Storage, basePath st
 // It uses X-Forwarded-Proto and X-Forwarded-Host if set (reverse proxy), falling
 // back to the request's TLS state and Host header.
 func requestBaseURL(r *http.Request) string {
-	scheme := "http"
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
-	} else if r.TLS != nil {
-		scheme = "https"
-	}
 	host := r.Header.Get("X-Forwarded-Host")
 	if host == "" {
 		host = r.Host
 	}
-	return scheme + "://" + host
+
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		return proto + "://" + host
+	}
+	if r.TLS != nil {
+		return "https://" + host
+	}
+	return "http://" + host
 }
 
 func rewriteLocalUploadURLs(urls []UploadURLInfo, hubEndpoint, resourceType, resourceID, authHeader string) []UploadURLInfo {
