@@ -31,6 +31,7 @@
 #   --author <name>      Filter by author (default: current gh user)
 #   --base <branch>      Override default branch detection
 #   --dot                Output graph in graphviz DOT format
+#   --infer              Infer dependencies via git commit ancestry
 #   --all                Show all open PRs regardless of author
 #   --repo <owner/repo>  Target a specific repository
 #   --no-color           Disable color output
@@ -56,6 +57,7 @@ DOT_OUTPUT=false
 ALL_AUTHORS=false
 REPO_FLAG=""
 NO_COLOR=false
+INFER=false
 
 # --- Usage ---
 usage() {
@@ -74,6 +76,8 @@ Options:
   --author <name>      Filter by author (default: current gh user)
   --base <branch>      Override default branch detection
   --dot                Output graph in graphviz DOT format (graph command only)
+  --infer              Infer dependencies via git commit ancestry (requires
+                       local repo with remote tracking branches)
   --all                Show all open PRs regardless of author
   --repo <owner/repo>  Target a specific repository
   --no-color           Disable color output
@@ -82,6 +86,7 @@ Options:
 Examples:
   pr-deps.sh                           # Show dependency graph for your PRs
   pr-deps.sh graph --all               # Show graph for all open PRs
+  pr-deps.sh graph --infer             # Infer hidden dependencies via git
   pr-deps.sh order --author octocat    # Show merge order for octocat's PRs
   pr-deps.sh files                     # Show file overlap matrix
   pr-deps.sh graph --dot | dot -Tpng -o deps.png   # Generate PNG diagram
@@ -153,6 +158,129 @@ fetch_prs() {
         echo "No open PRs found for $scope account." >&2
         exit 0
     fi
+}
+
+# --- Infer dependencies via git commit ancestry ---
+# For PRs that all target the default branch, check if one branch's tip
+# is an ancestor of another's. If B contains A's commits, B depends on A.
+# After finding all ancestry edges, perform transitive reduction to keep
+# only direct dependencies, then rewrite PR_JSON baseRefName accordingly.
+infer_dependencies() {
+    # Collect PRs that target the default branch (candidates for inference)
+    local candidates
+    candidates=$(echo "$PR_JSON" | jq -r --arg base "$BASE_BRANCH" \
+        '.[] | select(.baseRefName == $base) | "\(.number) \(.headRefName)"')
+
+    if [ -z "$candidates" ]; then
+        return
+    fi
+
+    # Resolve git refs for each candidate branch
+    # Try origin/<branch>, then <branch> directly
+    local nums=""
+    local heads=""
+    local resolved_refs=""
+    local skipped=""
+
+    while read -r num head; do
+        local ref=""
+        if git rev-parse --verify "origin/$head" &>/dev/null; then
+            ref="origin/$head"
+        elif git rev-parse --verify "$head" &>/dev/null; then
+            ref="$head"
+        else
+            skipped="$skipped  #$num ($head): branch not found locally\n"
+            continue
+        fi
+        nums="$nums $num"
+        heads="$heads $head"
+        resolved_refs="$resolved_refs $ref"
+    done <<< "$candidates"
+
+    if [ -n "$skipped" ]; then
+        echo "Note: skipping inference for PRs without local refs:" >&2
+        echo -e "$skipped" >&2
+        echo "  Run 'git fetch origin' to make all branches available." >&2
+        echo "" >&2
+    fi
+
+    # Convert to arrays
+    local -a num_arr head_arr ref_arr
+    read -ra num_arr <<< "$nums"
+    read -ra head_arr <<< "$heads"
+    read -ra ref_arr <<< "$resolved_refs"
+    local count=${#num_arr[@]}
+
+    if [ "$count" -lt 2 ]; then
+        return
+    fi
+
+    # Check pairwise ancestry: edges[i] = space-separated list of indices
+    # that i depends on (i.e., whose tip is an ancestor of i's tip)
+    local -a ancestors_of
+    for ((i = 0; i < count; i++)); do
+        ancestors_of[$i]=""
+        for ((j = 0; j < count; j++)); do
+            if [ "$i" -eq "$j" ]; then
+                continue
+            fi
+            # Is j's tip an ancestor of i's tip? If so, i depends on j.
+            if git merge-base --is-ancestor "${ref_arr[$j]}" "${ref_arr[$i]}" 2>/dev/null; then
+                ancestors_of[$i]="${ancestors_of[$i]} $j"
+            fi
+        done
+    done
+
+    # Transitive reduction: for each PR, keep only the closest ancestor.
+    # If i depends on j and j depends on k, remove the i->k edge.
+    # "Closest" = the ancestor whose tip is nearest to i's tip, which is
+    # the ancestor that itself has the most ancestors in common with i.
+    for ((i = 0; i < count; i++)); do
+        local deps="${ancestors_of[$i]}"
+        if [ -z "$deps" ]; then
+            continue
+        fi
+
+        local -a dep_arr
+        read -ra dep_arr <<< "$deps"
+
+        # For each ancestor j of i, remove any ancestor k of i where k is
+        # also an ancestor of j (meaning j is "closer" to i than k).
+        local -a direct_deps
+        direct_deps=()
+        for j_idx in "${dep_arr[@]}"; do
+            local is_transitive=false
+            for other_idx in "${dep_arr[@]}"; do
+                if [ "$j_idx" -eq "$other_idx" ]; then
+                    continue
+                fi
+                # Is j an ancestor of other? If so, j is further from i than other.
+                # Equivalently: is j_idx in ancestors_of[other_idx]?
+                local other_anc="${ancestors_of[$other_idx]}"
+                case " $other_anc " in
+                    *" $j_idx "*)
+                        # j is an ancestor of other, which is also an ancestor of i.
+                        # So j->i is transitive through other. Skip j.
+                        is_transitive=true
+                        break
+                        ;;
+                esac
+            done
+            if [ "$is_transitive" = false ]; then
+                direct_deps+=("$j_idx")
+            fi
+        done
+
+        # Rewrite PR_JSON: set baseRefName to the direct dependency's headRefName.
+        # If multiple direct deps exist (diamond), pick the first (arbitrary but stable).
+        if [ ${#direct_deps[@]} -gt 0 ]; then
+            local parent_idx="${direct_deps[0]}"
+            local parent_head="${head_arr[$parent_idx]}"
+            local pr_num="${num_arr[$i]}"
+            PR_JSON=$(echo "$PR_JSON" | jq --argjson num "$pr_num" --arg new_base "$parent_head" \
+                '[ .[] | if .number == $num then .baseRefName = $new_base else . end ]')
+        fi
+    done
 }
 
 # --- graph command: ASCII tree (rendered entirely in jq) ---
@@ -408,6 +536,10 @@ parse_args() {
                 DOT_OUTPUT=true
                 shift
                 ;;
+            --infer)
+                INFER=true
+                shift
+                ;;
             --all)
                 ALL_AUTHORS=true
                 shift
@@ -440,6 +572,10 @@ main() {
     resolve_author
     resolve_base_branch
     fetch_prs
+
+    if [ "$INFER" = true ]; then
+        infer_dependencies
+    fi
 
     case "$COMMAND" in
         graph) cmd_graph ;;
