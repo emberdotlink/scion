@@ -4061,3 +4061,59 @@ func TestPreserveTerminalPhase(t *testing.T) {
 		assert.Equal(t, string(state.PhaseRunning), agent.Phase)
 	})
 }
+
+// TestListAgents_GlobalEndpointReturnsAllAgents verifies that the global
+// /api/v1/agents endpoint returns agents from all groves, consistent with
+// the grove-scoped endpoint behavior.
+func TestListAgents_GlobalEndpointReturnsAllAgents(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create two groves with agents in each
+	grove1 := &store.Grove{ID: "grove-global-1", Name: "Grove One", Slug: "grove-one"}
+	grove2 := &store.Grove{ID: "grove-global-2", Name: "Grove Two", Slug: "grove-two"}
+	require.NoError(t, s.CreateGrove(ctx, grove1))
+	require.NoError(t, s.CreateGrove(ctx, grove2))
+
+	agent1 := &store.Agent{
+		ID: "agent-g1", Slug: "agent-g1", Name: "Agent G1",
+		GroveID: grove1.ID, Phase: string(state.PhaseRunning),
+	}
+	agent2 := &store.Agent{
+		ID: "agent-g2", Slug: "agent-g2", Name: "Agent G2",
+		GroveID: grove2.ID, Phase: string(state.PhaseCreated),
+	}
+	require.NoError(t, s.CreateAgent(ctx, agent1))
+	require.NoError(t, s.CreateAgent(ctx, agent2))
+
+	// Global list should return agents from both groves
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/agents", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp ListAgentsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Len(t, resp.Agents, 2, "global list should return agents from all groves")
+	assert.Equal(t, 2, resp.TotalCount, "TotalCount should match number of agents")
+
+	// Verify both agents are present
+	names := map[string]bool{}
+	for _, a := range resp.Agents {
+		names[a.Name] = true
+	}
+	assert.True(t, names["Agent G1"], "should include agent from grove 1")
+	assert.True(t, names["Agent G2"], "should include agent from grove 2")
+
+	// Verify grove-scoped lists are consistent
+	rec1 := doRequest(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/groves/%s/agents", grove1.ID), nil)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	var resp1 ListAgentsResponse
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	assert.Len(t, resp1.Agents, 1, "grove-scoped list should return only grove 1 agents")
+
+	rec2 := doRequest(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/groves/%s/agents", grove2.ID), nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var resp2 ListAgentsResponse
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	assert.Len(t, resp2.Agents, 1, "grove-scoped list should return only grove 2 agents")
+}

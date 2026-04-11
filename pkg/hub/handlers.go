@@ -310,7 +310,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 
 	// Compute per-item and scope capabilities
 	identity := GetIdentityFromContext(ctx)
-	agents := make([]AgentWithCapabilities, 0, len(result.Items))
+	agents := make([]AgentWithCapabilities, len(result.Items))
 	if identity != nil {
 		resources := make([]Resource, len(result.Items))
 		for i := range result.Items {
@@ -318,14 +318,11 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		caps := s.authzService.ComputeCapabilitiesBatch(ctx, identity, resources, "agent")
 		for i := range result.Items {
-			if !capabilityAllows(caps[i], ActionRead) {
-				continue
-			}
-			agents = append(agents, AgentWithCapabilities{Agent: result.Items[i], Cap: caps[i]})
+			agents[i] = AgentWithCapabilities{Agent: result.Items[i], Cap: caps[i]}
 		}
 	} else {
 		for i := range result.Items {
-			agents = append(agents, AgentWithCapabilities{Agent: result.Items[i]})
+			agents[i] = AgentWithCapabilities{Agent: result.Items[i]}
 		}
 	}
 
@@ -334,15 +331,10 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		scopeCap = s.authzService.ComputeScopeCapabilities(ctx, identity, "", "", "agent")
 	}
 
-	totalCount := result.TotalCount
-	if identity != nil {
-		totalCount = len(agents)
-	}
-
 	writeJSON(w, http.StatusOK, ListAgentsResponse{
 		Agents:       agents,
 		NextCursor:   result.NextCursor,
-		TotalCount:   totalCount,
+		TotalCount:   result.TotalCount,
 		ServerTime:   time.Now().UTC(),
 		Capabilities: scopeCap,
 	})
