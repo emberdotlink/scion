@@ -175,7 +175,10 @@ func extractFinalAssistantText(path string) string {
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	// If the scanner hit an error (e.g. a single line exceeded the 16MB
+	// buffer limit), return whatever text was collected before the error
+	// rather than discarding the entire turn.
+	if err := scanner.Err(); err != nil && len(turnParts) == 0 {
 		return ""
 	}
 

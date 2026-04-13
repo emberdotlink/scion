@@ -130,16 +130,24 @@ func (h *HubHandler) Handle(event *hooks.Event) error {
 		// assistant responses show up in the Messages tab. Best-effort:
 		// failure here must not break the status update flow below.
 		if event.Name == hooks.EventAgentEnd && event.Data.AssistantText != "" {
+			text := event.Data.AssistantText
+			// Guard against very large assistant responses (e.g. full file
+			// dumps) bloating the message store and slowing the Messages tab.
+			const maxAssistantTextBytes = 64 * 1024
+			if len(text) > maxAssistantTextBytes {
+				text = text[:maxAssistantTextBytes] + "\n[truncated]"
+			}
+
 			msgCtx, msgCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer msgCancel()
 			if msgErr := h.client.SendOutboundMessage(msgCtx, hub.OutboundMessage{
-				Msg:  event.Data.AssistantText,
+				Msg:  text,
 				Type: "assistant-reply",
 			}); msgErr != nil {
 				log.Error("Hub: outbound assistant reply failed: %v", msgErr)
 			} else {
-				log.Debug("Hub: Forwarded assistant reply to message store (%d bytes)", len(event.Data.AssistantText))
+				log.Debug("Hub: Forwarded assistant reply to message store (%d bytes)", len(text))
 			}
-			msgCancel()
 		}
 
 		// Check if local activity is sticky before sending idle

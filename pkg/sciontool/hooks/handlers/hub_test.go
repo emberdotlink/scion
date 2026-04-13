@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -583,6 +584,146 @@ func TestHubHandler_ModeBehavior(t *testing.T) {
 		var info map[string]interface{}
 		if err := json.Unmarshal(data, &info); err != nil {
 			t.Fatalf("agent-info.json should be valid JSON: %v", err)
+		}
+	})
+}
+
+// TestHubHandler_AssistantTextForwarding tests that agent-end events with
+// AssistantText forward the text to the outbound-message endpoint, and that
+// very large texts are truncated.
+func TestHubHandler_AssistantTextForwarding(t *testing.T) {
+	t.Run("forwards assistant text to outbound-message endpoint", func(t *testing.T) {
+		tmpHome := t.TempDir()
+		origHome := os.Getenv("HOME")
+		os.Setenv("HOME", tmpHome)
+		defer os.Setenv("HOME", origHome)
+
+		var mu sync.Mutex
+		var outboundMsg string
+		var outboundType string
+		statusCalls := 0
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			var payload map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&payload)
+
+			if msg, ok := payload["msg"].(string); ok {
+				// outbound-message endpoint
+				outboundMsg = msg
+				outboundType, _ = payload["type"].(string)
+			} else {
+				// status endpoint
+				statusCalls++
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		os.Setenv("SCION_HUB_ENDPOINT", server.URL)
+		os.Setenv("SCION_AUTH_TOKEN", "test-token")
+		os.Setenv("SCION_AGENT_ID", "test-agent-id")
+		defer func() {
+			os.Unsetenv("SCION_HUB_ENDPOINT")
+			os.Unsetenv("SCION_HUB_URL")
+			os.Unsetenv("SCION_AUTH_TOKEN")
+			os.Unsetenv("SCION_AGENT_ID")
+		}()
+
+		handler := NewHubHandler()
+		if handler == nil {
+			t.Fatal("Expected handler to be created")
+		}
+
+		err := handler.Handle(&hooks.Event{
+			Name: hooks.EventAgentEnd,
+			Data: hooks.EventData{AssistantText: "Hello from the agent"},
+		})
+		if err != nil {
+			t.Fatalf("Handle returned error: %v", err)
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		if outboundMsg != "Hello from the agent" {
+			t.Errorf("Expected outbound msg %q, got %q", "Hello from the agent", outboundMsg)
+		}
+		if outboundType != "assistant-reply" {
+			t.Errorf("Expected outbound type %q, got %q", "assistant-reply", outboundType)
+		}
+		if statusCalls != 1 {
+			t.Errorf("Expected 1 status call (idle), got %d", statusCalls)
+		}
+	})
+
+	t.Run("truncates assistant text exceeding 64KB", func(t *testing.T) {
+		tmpHome := t.TempDir()
+		origHome := os.Getenv("HOME")
+		os.Setenv("HOME", tmpHome)
+		defer os.Setenv("HOME", origHome)
+
+		var mu sync.Mutex
+		var outboundMsg string
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			var payload map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&payload)
+
+			if msg, ok := payload["msg"].(string); ok {
+				outboundMsg = msg
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		os.Setenv("SCION_HUB_ENDPOINT", server.URL)
+		os.Setenv("SCION_AUTH_TOKEN", "test-token")
+		os.Setenv("SCION_AGENT_ID", "test-agent-id")
+		defer func() {
+			os.Unsetenv("SCION_HUB_ENDPOINT")
+			os.Unsetenv("SCION_HUB_URL")
+			os.Unsetenv("SCION_AUTH_TOKEN")
+			os.Unsetenv("SCION_AGENT_ID")
+		}()
+
+		handler := NewHubHandler()
+		if handler == nil {
+			t.Fatal("Expected handler to be created")
+		}
+
+		// Create a 100KB string (well over the 64KB limit).
+		bigText := string(make([]byte, 100*1024))
+		for i := range []byte(bigText) {
+			_ = i // filled with zeros, but the length is what matters
+		}
+		bigText = strings.Repeat("A", 100*1024)
+
+		err := handler.Handle(&hooks.Event{
+			Name: hooks.EventAgentEnd,
+			Data: hooks.EventData{AssistantText: bigText},
+		})
+		if err != nil {
+			t.Fatalf("Handle returned error: %v", err)
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		maxLen := 64*1024 + len("\n[truncated]")
+		if len(outboundMsg) > maxLen {
+			t.Errorf("Expected outbound msg to be at most %d bytes, got %d", maxLen, len(outboundMsg))
+		}
+		if !strings.HasSuffix(outboundMsg, "\n[truncated]") {
+			t.Error("Expected truncated message to end with '\\n[truncated]'")
 		}
 	})
 }

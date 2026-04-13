@@ -1765,6 +1765,10 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request, id, a
 	case api.AgentActionOutboundMessage:
 		s.handleAgentOutboundMessage(w, r, id)
 	case api.AgentActionMessages:
+		// Defence-in-depth: this action is normally intercepted earlier in
+		// handleAgentRoute (before the POST-only gate) so that GET requests
+		// are served. This case handles the unlikely path where the request
+		// reaches handleAgentAction directly.
 		s.handleAgentMessages(w, r, id)
 	default:
 		NotFound(w, "Action")
