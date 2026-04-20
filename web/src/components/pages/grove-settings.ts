@@ -108,6 +108,9 @@ export class ScionPageGroveSettings extends LitElement {
   private syncRepoUrl = '';
 
   @state()
+  private importMode: 'url' | 'workspace' = 'url';
+
+  @state()
   private membersGroup: AdminGroup | null = null;
 
   @state()
@@ -1009,10 +1012,14 @@ export class ScionPageGroveSettings extends LitElement {
     this.syncSuccess = null;
 
     try {
+      const body =
+        this.importMode === 'workspace'
+          ? { workspacePath: this.syncRepoUrl || '/.scion/templates' }
+          : { sourceUrl: this.syncRepoUrl };
       const response = await apiFetch(`/api/v1/groves/${this.groveId}/import-templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceUrl: this.syncRepoUrl }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -1800,7 +1807,7 @@ export class ScionPageGroveSettings extends LitElement {
                 size="small"
                 variant="default"
                 ?loading=${this.syncLoading}
-                ?disabled=${this.syncLoading || !this.syncRepoUrl}
+                ?disabled=${this.syncLoading || (this.importMode === 'url' && !this.syncRepoUrl)}
                 @click=${() => this.handleSyncTemplates()}
               >
                 <sl-icon slot="prefix" name="download"></sl-icon>
@@ -1812,9 +1819,27 @@ export class ScionPageGroveSettings extends LitElement {
       ${canSync
         ? html`
             <div style="margin-bottom: 1rem;">
+              <sl-radio-group
+                size="small"
+                value=${this.importMode}
+                style="margin-bottom: 0.5rem;"
+                @sl-change=${(e: Event) => {
+                  this.importMode = (e.target as HTMLInputElement).value as 'url' | 'workspace';
+                  this.syncRepoUrl = '';
+                  this.syncError = null;
+                  this.syncSuccess = null;
+                  if (this.importMode === 'url' && this.grove?.gitRemote) {
+                    this.syncRepoUrl = this.grove.gitRemote;
+                  }
+                }}
+              >
+                <sl-radio-button value="url">Import from URL</sl-radio-button>
+                <sl-radio-button value="workspace">Import from workspace</sl-radio-button>
+              </sl-radio-group>
               <sl-input
-                label="Import from URL"
-                placeholder="https://github.com/org/repo/tree/main/.scion/templates"
+                placeholder=${this.importMode === 'workspace'
+                  ? '/.scion/templates'
+                  : 'https://github.com/org/repo/tree/main/.scion/templates'}
                 size="small"
                 clearable
                 .value=${this.syncRepoUrl}
@@ -1826,10 +1851,12 @@ export class ScionPageGroveSettings extends LitElement {
                   this.syncRepoUrl = '';
                 }}
               >
-                <sl-icon slot="prefix" name="github"></sl-icon>
+                <sl-icon slot="prefix" name=${this.importMode === 'workspace' ? 'folder' : 'github'}></sl-icon>
               </sl-input>
               <div style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--sl-color-neutral-500);">
-                GitHub URL to a template or templates directory — supports arbitrary deep paths
+                ${this.importMode === 'workspace'
+                  ? 'Path within the grove workspace — the default will be used if no path is provided'
+                  : 'GitHub URL to a template or templates directory — supports arbitrary deep paths'}
               </div>
             </div>
           `
@@ -1839,7 +1866,9 @@ export class ScionPageGroveSettings extends LitElement {
         ? html`
             <div class="sync-status syncing">
               <sl-spinner style="font-size: 0.875rem;"></sl-spinner>
-              ${`Importing templates from ${this.syncRepoUrl}...`}
+              ${this.importMode === 'workspace'
+                ? `Importing templates from workspace ${this.syncRepoUrl || '/.scion/templates'}...`
+                : `Importing templates from ${this.syncRepoUrl}...`}
             </div>
           `
         : ''}
@@ -1886,7 +1915,7 @@ export class ScionPageGroveSettings extends LitElement {
                 <sl-icon name="file-earmark"></sl-icon>
                 <p>No grove templates imported yet.</p>
                 ${canSync
-                  ? html`<p>Enter a URL above and click "Import Templates" to import.</p>`
+                  ? html`<p>Enter a source above and click "Import Templates" to import.</p>`
                   : ''}
               </div>
             `}

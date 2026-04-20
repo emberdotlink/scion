@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/store"
 	"github.com/GoogleCloudPlatform/scion/pkg/store/sqlite"
@@ -601,5 +602,198 @@ func TestDetectHarnessFromConfig_HarnessField(t *testing.T) {
 	got := detectHarnessFromConfig(dir, "my-template")
 	if got != "codex" {
 		t.Errorf("expected 'codex' from config, got %q", got)
+	}
+}
+
+// setupWorkspaceGrove creates a server, store, grove, and workspace temp dir
+// linked via an embedded broker provider. Returns the server, store, grove,
+// and the workspace root path. Templates should be placed under the returned
+// workspace root.
+func setupWorkspaceGrove(t *testing.T, groveName string) (*Server, store.Store, *store.Grove, string) {
+	t.Helper()
+	srv, s, _ := testTemplateBootstrapServer(t)
+	ctx := context.Background()
+
+	workspaceRoot := t.TempDir()
+
+	grove := &store.Grove{
+		ID:        "grove-ws-" + groveName,
+		Name:      groveName,
+		Slug:      groveName,
+		GitRemote: "https://github.com/test/" + groveName,
+	}
+	if err := s.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	brokerID := "broker-ws-" + groveName
+	broker := &store.RuntimeBroker{
+		ID:       brokerID,
+		Name:     "ws-broker",
+		Endpoint: "http://localhost:9090",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := s.CreateRuntimeBroker(ctx, broker); err != nil {
+		t.Fatalf("failed to create broker: %v", err)
+	}
+
+	if err := s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:    grove.ID,
+		BrokerID:   brokerID,
+		BrokerName: broker.Name,
+		LocalPath:  workspaceRoot,
+		Status:     "online",
+		LastSeen:   time.Now(),
+	}); err != nil {
+		t.Fatalf("failed to add grove provider: %v", err)
+	}
+
+	srv.SetEmbeddedBrokerID(brokerID)
+
+	return srv, s, grove, workspaceRoot
+}
+
+func TestImportTemplatesFromWorkspace_ImportsTemplates(t *testing.T) {
+	srv, s, grove, wsRoot := setupWorkspaceGrove(t, "ws-import")
+	ctx := context.Background()
+
+	// Create a templates directory with one valid scion template
+	templateDir := filepath.Join(wsRoot, ".scion", "templates", "my-template")
+	if err := os.MkdirAll(templateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "scion-agent.yaml"), []byte("harness: claude\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "README.md"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	imported, err := srv.importTemplatesFromWorkspace(ctx, grove, "/.scion/templates")
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if len(imported) != 1 || imported[0] != "my-template" {
+		t.Fatalf("expected [my-template], got %v", imported)
+	}
+
+	result, err := s.ListTemplates(ctx, store.TemplateFilter{
+		Scope:   string(store.TemplateScopeGrove),
+		GroveID: grove.ID,
+	}, store.ListOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalCount != 1 {
+		t.Fatalf("expected 1 grove-scoped template, got %d", result.TotalCount)
+	}
+	if result.Items[0].Scope != store.TemplateScopeGrove {
+		t.Errorf("expected grove scope, got %q", result.Items[0].Scope)
+	}
+}
+
+func TestImportTemplatesFromWorkspace_DefaultPath(t *testing.T) {
+	srv, s, grove, wsRoot := setupWorkspaceGrove(t, "ws-default")
+	ctx := context.Background()
+
+	// Create a template at the default /.scion/templates path
+	templateDir := filepath.Join(wsRoot, ".scion", "templates", "default-tmpl")
+	if err := os.MkdirAll(templateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "scion-agent.yaml"), []byte("harness: gemini\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pass default path
+	imported, err := srv.importTemplatesFromWorkspace(ctx, grove, "/.scion/templates")
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if len(imported) != 1 {
+		t.Fatalf("expected 1 template, got %d", len(imported))
+	}
+
+	result, err := s.ListTemplates(ctx, store.TemplateFilter{GroveID: grove.ID}, store.ListOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalCount != 1 {
+		t.Fatalf("expected 1 template, got %d", result.TotalCount)
+	}
+}
+
+func TestImportTemplatesFromWorkspace_NonexistentPath(t *testing.T) {
+	srv, _, grove, _ := setupWorkspaceGrove(t, "ws-nopath")
+	ctx := context.Background()
+
+	_, err := srv.importTemplatesFromWorkspace(ctx, grove, "/does/not/exist")
+	if err == nil {
+		t.Fatal("expected error for nonexistent path")
+	}
+}
+
+func TestImportTemplatesFromWorkspace_NoTemplatesFound(t *testing.T) {
+	srv, _, grove, wsRoot := setupWorkspaceGrove(t, "ws-empty")
+	ctx := context.Background()
+
+	// Create the directory but with no valid templates
+	emptyDir := filepath.Join(wsRoot, "empty-templates")
+	if err := os.MkdirAll(emptyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := srv.importTemplatesFromWorkspace(ctx, grove, "/empty-templates")
+	if err == nil {
+		t.Fatal("expected error for directory with no templates")
+	}
+	if !strings.Contains(err.Error(), "no scion templates found") {
+		t.Fatalf("expected 'no scion templates found' error, got: %v", err)
+	}
+}
+
+func TestImportTemplatesFromWorkspace_PathTraversal(t *testing.T) {
+	srv, _, grove, _ := setupWorkspaceGrove(t, "ws-traversal")
+	ctx := context.Background()
+
+	// A relative path with .. escapes the grove root
+	_, err := srv.importTemplatesFromWorkspace(ctx, grove, "../../../etc")
+	if err == nil {
+		t.Fatal("expected error for path traversal attempt")
+	}
+	if !strings.Contains(err.Error(), "must be within") {
+		t.Fatalf("expected 'must be within' error, got: %v", err)
+	}
+}
+
+func TestImportTemplatesFromWorkspace_MultipleTemplates(t *testing.T) {
+	srv, s, grove, wsRoot := setupWorkspaceGrove(t, "ws-multi")
+	ctx := context.Background()
+
+	// Create two valid templates
+	for _, name := range []string{"tmpl-a", "tmpl-b"} {
+		dir := filepath.Join(wsRoot, "templates", name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scion-agent.yaml"), []byte("harness: claude\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	imported, err := srv.importTemplatesFromWorkspace(ctx, grove, "/templates")
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if len(imported) != 2 {
+		t.Fatalf("expected 2 templates, got %d: %v", len(imported), imported)
+	}
+
+	result, err := s.ListTemplates(ctx, store.TemplateFilter{GroveID: grove.ID}, store.ListOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalCount != 2 {
+		t.Fatalf("expected 2 templates, got %d", result.TotalCount)
 	}
 }

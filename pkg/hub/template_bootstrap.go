@@ -409,3 +409,88 @@ func (s *Server) importTemplatesFromRemote(ctx context.Context, groveID, sourceU
 	}
 	return imported, nil
 }
+
+// importTemplatesFromWorkspace imports templates from a path within the
+// grove's workspace filesystem. The workspacePath is relative to the grove's
+// workspace root (e.g. "/.scion/templates" or "/my/custom/path").
+func (s *Server) importTemplatesFromWorkspace(ctx context.Context, grove *store.Grove, workspacePath string) ([]string, error) {
+	stor := s.GetStorage()
+	if stor == nil {
+		return nil, fmt.Errorf("template storage is not configured")
+	}
+
+	// Resolve the grove's workspace root on disk
+	groveRoot, err := s.resolveGroveWebDAVPath(ctx, grove)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve grove workspace: %w", err)
+	}
+
+	// Clean and join the workspace path to the grove root.
+	// Strip leading slash so it joins correctly.
+	rel := strings.TrimPrefix(filepath.Clean(workspacePath), "/")
+	templatesDir := filepath.Join(groveRoot, rel)
+
+	// Validate the resolved path is within the grove root
+	absRoot, _ := filepath.Abs(groveRoot)
+	absDir, _ := filepath.Abs(templatesDir)
+	if !strings.HasPrefix(absDir, absRoot) {
+		return nil, fmt.Errorf("workspace path must be within the grove workspace")
+	}
+
+	info, err := os.Stat(templatesDir)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("workspace path not found or not a directory: %s", workspacePath)
+	}
+
+	// Collect template directories to import (same logic as importTemplatesFromRemote)
+	type templateDir struct{ name, path string }
+	var dirs []templateDir
+
+	if templateimport.IsScionTemplate(templatesDir) {
+		dirs = append(dirs, templateDir{filepath.Base(templatesDir), templatesDir})
+	} else {
+		entries, readErr := os.ReadDir(templatesDir)
+		if readErr != nil {
+			return nil, readErr
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			dir := filepath.Join(templatesDir, entry.Name())
+			if templateimport.IsScionTemplate(dir) {
+				dirs = append(dirs, templateDir{entry.Name(), dir})
+			}
+		}
+	}
+
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("no scion templates found at workspace path %s", workspacePath)
+	}
+
+	var imported []string
+	for _, td := range dirs {
+		slug := api.Slugify(td.name)
+		existing, lookupErr := s.store.GetTemplateBySlug(ctx, slug, store.TemplateScopeGrove, grove.ID)
+		if lookupErr != nil && lookupErr != store.ErrNotFound {
+			s.templateLog.Warn("workspace template import: failed to look up template, skipping",
+				"name", td.name, "error", lookupErr)
+			continue
+		}
+		if existing == nil {
+			if bootstrapErr := s.bootstrapSingleTemplate(ctx, td.name, td.path, store.TemplateScopeGrove, grove.ID); bootstrapErr != nil {
+				s.templateLog.Warn("workspace template import: failed to import template, skipping",
+					"name", td.name, "error", bootstrapErr)
+				continue
+			}
+		} else {
+			if _, syncErr := s.syncExistingTemplate(ctx, existing, td.path, true); syncErr != nil {
+				s.templateLog.Warn("workspace template import: failed to sync template, skipping",
+					"name", td.name, "error", syncErr)
+				continue
+			}
+		}
+		imported = append(imported, td.name)
+	}
+	return imported, nil
+}

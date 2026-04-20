@@ -8604,8 +8604,10 @@ func (s *Server) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 // ============================================================================
 
 // ImportTemplatesRequest is the request body for direct template import.
+// Exactly one of SourceURL or WorkspacePath should be provided.
 type ImportTemplatesRequest struct {
-	SourceURL string `json:"sourceUrl"`
+	SourceURL     string `json:"sourceUrl"`
+	WorkspacePath string `json:"workspacePath"`
 }
 
 // ImportTemplatesResponse is returned after a direct template import completes.
@@ -8651,15 +8653,19 @@ func (s *Server) handleGroveImportTemplates(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req ImportTemplatesRequest
-	if err := readJSON(r, &req); err != nil || req.SourceURL == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "sourceUrl is required", nil)
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", nil)
 		return
 	}
 
-	req.SourceURL = config.NormalizeTemplateSourceURL(req.SourceURL)
+	if req.SourceURL == "" && req.WorkspacePath == "" {
+		// Default workspace path when neither is provided
+		req.WorkspacePath = "/.scion/templates"
+	}
 
 	// Verify grove exists
-	if _, err := s.store.GetGrove(ctx, groveID); err != nil {
+	grove, err := s.store.GetGrove(ctx, groveID)
+	if err != nil {
 		if err == store.ErrNotFound {
 			NotFound(w, "Grove")
 			return
@@ -8673,7 +8679,13 @@ func (s *Server) handleGroveImportTemplates(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	imported, err := s.importTemplatesFromRemote(ctx, groveID, req.SourceURL)
+	var imported []string
+	if req.WorkspacePath != "" {
+		imported, err = s.importTemplatesFromWorkspace(ctx, grove, req.WorkspacePath)
+	} else {
+		req.SourceURL = config.NormalizeTemplateSourceURL(req.SourceURL)
+		imported, err = s.importTemplatesFromRemote(ctx, groveID, req.SourceURL)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "import_failed", err.Error(), nil)
 		return
