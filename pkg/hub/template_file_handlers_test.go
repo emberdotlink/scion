@@ -165,6 +165,7 @@ func TestHandleTemplateFileList(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/"+tmpl.ID+"/files", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -199,6 +200,7 @@ func TestHandleTemplateFileRead(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/"+tmpl.ID+"/files/CLAUDE.md", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -230,6 +232,7 @@ func TestHandleTemplateFileRead_NotFound(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/"+tmpl.ID+"/files/nonexistent.md", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -250,6 +253,7 @@ func TestHandleTemplateFileWrite(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/"+tmpl.ID+"/files/CLAUDE.md",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -297,6 +301,7 @@ func TestHandleTemplateFileWrite_NewFile(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/"+tmpl.ID+"/files/home/.bashrc",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -332,6 +337,7 @@ func TestHandleTemplateFileWrite_LockedTemplate(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/"+tmpl.ID+"/files/CLAUDE.md",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -351,6 +357,7 @@ func TestHandleTemplateFileWrite_ConflictHash(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/tmpl-test-1/files/CLAUDE.md",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -369,6 +376,7 @@ func TestHandleTemplateFileDelete(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/templates/"+tmpl.ID+"/files/home/.bashrc", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -408,6 +416,7 @@ func TestHandleTemplateFileDelete_LockedTemplate(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/templates/"+tmpl.ID+"/files/CLAUDE.md", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -424,6 +433,7 @@ func TestHandleTemplateFileDelete_NotFound(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/templates/tmpl-test-1/files/nonexistent.md", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -453,6 +463,7 @@ func templateMultipartRequest(t *testing.T, templateID string, files map[string]
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/templates/"+templateID+"/files", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	return req
 }
 
@@ -581,6 +592,7 @@ func TestHandleTemplateFileUpload_NoFiles(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/templates/"+tmpl.ID+"/files", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
