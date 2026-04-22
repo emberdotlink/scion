@@ -30,6 +30,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/scion/pkg/storage"
 	"github.com/GoogleCloudPlatform/scion/pkg/store"
+	"gopkg.in/yaml.v3"
 )
 
 // maxTemplateFileSize is the maximum file size (in bytes) that can be read
@@ -80,6 +81,47 @@ type TemplateFileWriteResponse struct {
 	Size    int64  `json:"size"`
 	Hash    string `json:"hash"`
 	ModTime string `json:"modTime"`
+}
+
+const scionAgentConfigFile = "scion-agent.yaml"
+
+// detectHarnessFromContent parses scion-agent.yaml content and returns
+// the harness type. Falls back to templateName-based inference.
+func detectHarnessFromContent(data []byte, templateName string) string {
+	var raw struct {
+		HarnessConfig        string `yaml:"harness_config"`
+		DefaultHarnessConfig string `yaml:"default_harness_config"`
+		Harness              string `yaml:"harness"`
+	}
+
+	// Normalize hyphenated keys to underscored before parsing
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err == nil {
+		if node.Kind == yaml.DocumentNode {
+			for _, child := range node.Content {
+				if child.Kind == yaml.MappingNode {
+					for i := 0; i < len(child.Content); i += 2 {
+						key := child.Content[i]
+						if key.Kind == yaml.ScalarNode {
+							key.Value = strings.ReplaceAll(key.Value, "-", "_")
+						}
+					}
+				}
+			}
+		}
+		_ = node.Decode(&raw)
+	}
+
+	if raw.HarnessConfig != "" {
+		return inferHarnessFromName(raw.HarnessConfig)
+	}
+	if raw.DefaultHarnessConfig != "" {
+		return inferHarnessFromName(raw.DefaultHarnessConfig)
+	}
+	if raw.Harness != "" {
+		return raw.Harness
+	}
+	return inferHarnessFromName(templateName)
 }
 
 // handleTemplateFiles dispatches template file operations.
@@ -329,6 +371,11 @@ func (s *Server) handleTemplateFileWrite(w http.ResponseWriter, r *http.Request,
 	// Recompute content hash
 	template.ContentHash = computeContentHash(template.Files)
 
+	// Re-detect harness type when the config file changes
+	if filePath == scionAgentConfigFile {
+		template.Harness = detectHarnessFromContent(content, template.Name)
+	}
+
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
@@ -395,6 +442,11 @@ func (s *Server) handleTemplateFileWriteRaw(w http.ResponseWriter, r *http.Reque
 
 	// Recompute content hash
 	template.ContentHash = computeContentHash(template.Files)
+
+	// Re-detect harness type when the config file changes
+	if filePath == scionAgentConfigFile {
+		template.Harness = detectHarnessFromContent(data, template.Name)
+	}
 
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
 		writeErrorFromErr(w, err, "")
@@ -504,6 +556,11 @@ func (s *Server) handleTemplateFileUpload(w http.ResponseWriter, r *http.Request
 				})
 			}
 
+			// Re-detect harness type when the config file changes
+			if relPath == scionAgentConfigFile {
+				template.Harness = detectHarnessFromContent(data, template.Name)
+			}
+
 			uploaded = append(uploaded, TemplateFileEntry{
 				Path:    relPath,
 				Size:    fileSize,
@@ -573,6 +630,11 @@ func (s *Server) handleTemplateFileDelete(w http.ResponseWriter, r *http.Request
 
 	// Recompute content hash
 	template.ContentHash = computeContentHash(template.Files)
+
+	// Re-detect harness type when the config file is removed
+	if filePath == scionAgentConfigFile {
+		template.Harness = inferHarnessFromName(template.Name)
+	}
 
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
 		writeErrorFromErr(w, err, "")

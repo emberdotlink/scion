@@ -100,6 +100,7 @@ func testTemplateFileServer(t *testing.T) (*Server, store.Store, *contentMockSto
 	}
 
 	cfg := DefaultServerConfig()
+	cfg.DevAuthToken = testDevToken
 	srv, err := New(cfg, s)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
@@ -626,5 +627,166 @@ func TestHandleTemplateFileUpload_OverwriteExisting(t *testing.T) {
 	stored := stor.content[tmpl.StoragePath+"/CLAUDE.md"]
 	if string(stored) != "# New Content" {
 		t.Errorf("unexpected stored content: %s", string(stored))
+	}
+}
+
+func TestDetectHarnessFromContent(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		templateName string
+		want         string
+	}{
+		{
+			name:         "harness_config field",
+			content:      "harness_config: claude-web\n",
+			templateName: "my-template",
+			want:         "claude",
+		},
+		{
+			name:         "default_harness_config field",
+			content:      "default_harness_config: gemini-web\n",
+			templateName: "my-template",
+			want:         "gemini",
+		},
+		{
+			name:         "hyphenated keys normalized",
+			content:      "default-harness-config: gemini-pro\n",
+			templateName: "my-template",
+			want:         "gemini",
+		},
+		{
+			name:         "legacy harness field",
+			content:      "harness: codex\n",
+			templateName: "my-template",
+			want:         "codex",
+		},
+		{
+			name:         "falls back to template name",
+			content:      "env:\n  FOO: bar\n",
+			templateName: "claude-default",
+			want:         "claude",
+		},
+		{
+			name:         "no match returns empty",
+			content:      "env:\n  FOO: bar\n",
+			templateName: "custom",
+			want:         "",
+		},
+		{
+			name:         "harness_config takes priority over default_harness_config",
+			content:      "harness_config: claude-web\ndefault_harness_config: gemini-web\n",
+			templateName: "my-template",
+			want:         "claude",
+		},
+		{
+			name:         "invalid yaml falls back to template name",
+			content:      ": invalid: yaml: [",
+			templateName: "gemini-template",
+			want:         "gemini",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectHarnessFromContent([]byte(tt.content), tt.templateName)
+			if got != tt.want {
+				t.Errorf("detectHarnessFromContent() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleTemplateFileWrite_UpdatesHarness(t *testing.T) {
+	srv, s, stor := testTemplateFileServer(t)
+	ctx := context.Background()
+
+	tmpl := createTestTemplate(t, s, stor, map[string]string{
+		"scion-agent.yaml": "harness_config: claude\n",
+	})
+
+	// Write a new scion-agent.yaml that changes the harness
+	body := `{"content": "default_harness_config: gemini-web\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/"+tmpl.ID+"/files/scion-agent.yaml",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated, err := s.GetTemplate(ctx, tmpl.ID)
+	if err != nil {
+		t.Fatalf("failed to get updated template: %v", err)
+	}
+	if updated.Harness != "gemini" {
+		t.Errorf("expected harness 'gemini', got %q", updated.Harness)
+	}
+}
+
+func TestHandleTemplateFileWrite_NonConfigFileDoesNotChangeHarness(t *testing.T) {
+	srv, s, stor := testTemplateFileServer(t)
+	ctx := context.Background()
+
+	tmpl := createTestTemplate(t, s, stor, map[string]string{
+		"CLAUDE.md": "# Agent",
+	})
+
+	body := `{"content": "default_harness_config: gemini\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/"+tmpl.ID+"/files/CLAUDE.md",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated, err := s.GetTemplate(ctx, tmpl.ID)
+	if err != nil {
+		t.Fatalf("failed to get updated template: %v", err)
+	}
+	if updated.Harness != "claude" {
+		t.Errorf("expected harness to remain 'claude', got %q", updated.Harness)
+	}
+}
+
+func TestHandleTemplateFileDelete_ResetsHarness(t *testing.T) {
+	srv, s, stor := testTemplateFileServer(t)
+	ctx := context.Background()
+
+	tmpl := createTestTemplate(t, s, stor, map[string]string{
+		"scion-agent.yaml": "default_harness_config: gemini-web\n",
+		"CLAUDE.md":        "# Agent",
+	})
+
+	// Update harness to match config file
+	tmpl.Harness = "gemini"
+	if err := s.UpdateTemplate(ctx, tmpl); err != nil {
+		t.Fatalf("failed to update template: %v", err)
+	}
+
+	// Delete the config file
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/templates/"+tmpl.ID+"/files/scion-agent.yaml", nil)
+	req.Header.Set("Authorization", "Bearer "+testDevToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated, err := s.GetTemplate(ctx, tmpl.ID)
+	if err != nil {
+		t.Fatalf("failed to get updated template: %v", err)
+	}
+	// Template name is "test-template" which doesn't match any known harness
+	if updated.Harness != "" {
+		t.Errorf("expected empty harness after config deletion, got %q", updated.Harness)
 	}
 }
