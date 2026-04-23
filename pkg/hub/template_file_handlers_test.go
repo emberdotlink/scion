@@ -647,63 +647,75 @@ func TestDetectHarnessFromContent(t *testing.T) {
 		name         string
 		content      string
 		templateName string
-		want         string
+		wantHarness  string
+		wantConfig   string
 	}{
 		{
 			name:         "harness_config field",
 			content:      "harness_config: claude-web\n",
 			templateName: "my-template",
-			want:         "claude",
+			wantHarness:  "claude",
+			wantConfig:   "claude-web",
 		},
 		{
 			name:         "default_harness_config field",
 			content:      "default_harness_config: gemini-web\n",
 			templateName: "my-template",
-			want:         "gemini",
+			wantHarness:  "gemini",
+			wantConfig:   "gemini-web",
 		},
 		{
 			name:         "hyphenated keys normalized",
 			content:      "default-harness-config: gemini-pro\n",
 			templateName: "my-template",
-			want:         "gemini",
+			wantHarness:  "gemini",
+			wantConfig:   "gemini-pro",
 		},
 		{
 			name:         "legacy harness field",
 			content:      "harness: codex\n",
 			templateName: "my-template",
-			want:         "codex",
+			wantHarness:  "codex",
+			wantConfig:   "",
 		},
 		{
 			name:         "falls back to template name",
 			content:      "env:\n  FOO: bar\n",
 			templateName: "claude-default",
-			want:         "claude",
+			wantHarness:  "claude",
+			wantConfig:   "",
 		},
 		{
 			name:         "no match returns empty",
 			content:      "env:\n  FOO: bar\n",
 			templateName: "custom",
-			want:         "",
+			wantHarness:  "",
+			wantConfig:   "",
 		},
 		{
 			name:         "harness_config takes priority over default_harness_config",
 			content:      "harness_config: claude-web\ndefault_harness_config: gemini-web\n",
 			templateName: "my-template",
-			want:         "claude",
+			wantHarness:  "claude",
+			wantConfig:   "claude-web",
 		},
 		{
 			name:         "invalid yaml falls back to template name",
 			content:      ": invalid: yaml: [",
 			templateName: "gemini-template",
-			want:         "gemini",
+			wantHarness:  "gemini",
+			wantConfig:   "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := detectHarnessFromContent([]byte(tt.content), tt.templateName)
-			if got != tt.want {
-				t.Errorf("detectHarnessFromContent() = %q, want %q", got, tt.want)
+			if got.Harness != tt.wantHarness {
+				t.Errorf("detectHarnessFromContent().Harness = %q, want %q", got.Harness, tt.wantHarness)
+			}
+			if got.DefaultHarnessConfig != tt.wantConfig {
+				t.Errorf("detectHarnessFromContent().DefaultHarnessConfig = %q, want %q", got.DefaultHarnessConfig, tt.wantConfig)
 			}
 		})
 	}
@@ -736,6 +748,9 @@ func TestHandleTemplateFileWrite_UpdatesHarness(t *testing.T) {
 	}
 	if updated.Harness != "gemini" {
 		t.Errorf("expected harness 'gemini', got %q", updated.Harness)
+	}
+	if updated.DefaultHarnessConfig != "gemini-web" {
+		t.Errorf("expected defaultHarnessConfig 'gemini-web', got %q", updated.DefaultHarnessConfig)
 	}
 }
 

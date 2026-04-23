@@ -86,8 +86,9 @@ type TemplateFileWriteResponse struct {
 const scionAgentConfigFile = "scion-agent.yaml"
 
 // detectHarnessFromContent parses scion-agent.yaml content and returns
-// the harness type. Falls back to templateName-based inference.
-func detectHarnessFromContent(data []byte, templateName string) string {
+// the harness type and default harness config name.
+// Falls back to templateName-based inference.
+func detectHarnessFromContent(data []byte, templateName string) templateConfigInfo {
 	var raw struct {
 		HarnessConfig        string `yaml:"harness_config"`
 		DefaultHarnessConfig string `yaml:"default_harness_config"`
@@ -113,15 +114,21 @@ func detectHarnessFromContent(data []byte, templateName string) string {
 	}
 
 	if raw.HarnessConfig != "" {
-		return inferHarnessFromName(raw.HarnessConfig)
+		return templateConfigInfo{
+			Harness:              inferHarnessFromName(raw.HarnessConfig),
+			DefaultHarnessConfig: raw.HarnessConfig,
+		}
 	}
 	if raw.DefaultHarnessConfig != "" {
-		return inferHarnessFromName(raw.DefaultHarnessConfig)
+		return templateConfigInfo{
+			Harness:              inferHarnessFromName(raw.DefaultHarnessConfig),
+			DefaultHarnessConfig: raw.DefaultHarnessConfig,
+		}
 	}
 	if raw.Harness != "" {
-		return raw.Harness
+		return templateConfigInfo{Harness: raw.Harness}
 	}
-	return inferHarnessFromName(templateName)
+	return templateConfigInfo{Harness: inferHarnessFromName(templateName)}
 }
 
 // handleTemplateFiles dispatches template file operations.
@@ -371,9 +378,11 @@ func (s *Server) handleTemplateFileWrite(w http.ResponseWriter, r *http.Request,
 	// Recompute content hash
 	template.ContentHash = computeContentHash(template.Files)
 
-	// Re-detect harness type when the config file changes
+	// Re-detect harness type and default harness config when the config file changes
 	if filePath == scionAgentConfigFile {
-		template.Harness = detectHarnessFromContent(content, template.Name)
+		cfgInfo := detectHarnessFromContent(content, template.Name)
+		template.Harness = cfgInfo.Harness
+		template.DefaultHarnessConfig = cfgInfo.DefaultHarnessConfig
 	}
 
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
@@ -443,9 +452,11 @@ func (s *Server) handleTemplateFileWriteRaw(w http.ResponseWriter, r *http.Reque
 	// Recompute content hash
 	template.ContentHash = computeContentHash(template.Files)
 
-	// Re-detect harness type when the config file changes
+	// Re-detect harness type and default harness config when the config file changes
 	if filePath == scionAgentConfigFile {
-		template.Harness = detectHarnessFromContent(data, template.Name)
+		cfgInfo := detectHarnessFromContent(data, template.Name)
+		template.Harness = cfgInfo.Harness
+		template.DefaultHarnessConfig = cfgInfo.DefaultHarnessConfig
 	}
 
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
@@ -556,9 +567,11 @@ func (s *Server) handleTemplateFileUpload(w http.ResponseWriter, r *http.Request
 				})
 			}
 
-			// Re-detect harness type when the config file changes
+			// Re-detect harness type and default harness config when the config file changes
 			if relPath == scionAgentConfigFile {
-				template.Harness = detectHarnessFromContent(data, template.Name)
+				cfgInfo := detectHarnessFromContent(data, template.Name)
+				template.Harness = cfgInfo.Harness
+				template.DefaultHarnessConfig = cfgInfo.DefaultHarnessConfig
 			}
 
 			uploaded = append(uploaded, TemplateFileEntry{
