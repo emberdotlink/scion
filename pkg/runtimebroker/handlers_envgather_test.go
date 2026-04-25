@@ -1860,6 +1860,94 @@ profiles:
 	}
 }
 
+// TestEnvGather_AutoDetect_APIKeyWinsOverGCPProject tests that when both an
+// API key and GCP credentials are available (e.g. GEMINI_API_KEY secret + user-
+// scoped GOOGLE_CLOUD_PROJECT), auto-detection prefers api-key over vertex-ai.
+// Regression test: previously, DetectAuthTypeFromEnvVars would detect vertex-ai
+// from GOOGLE_CLOUD_PROJECT without checking whether an API key was also present,
+// causing env-gather to require gcloud-adc even though api-key auth was viable.
+func TestEnvGather_AutoDetect_APIKeyWinsOverGCPProject(t *testing.T) {
+	srv, _, groveDir := newTestServerWithHarnessConfig(t, "gemini",
+		"harness: gemini\nimage: test-image\nuser: scion\n",
+		`
+schema_version: "1"
+harness_configs:
+  gemini:
+    harness: gemini
+profiles:
+  default:
+    runtime: mock
+`)
+
+	body := `{
+		"name": "test-agent-apikey-gcp",
+		"id": "agent-uuid-apikey-gcp",
+		"gatherEnv": true,
+		"grovePath": "` + groveDir + `",
+		"resolvedEnv": {
+			"GOOGLE_CLOUD_PROJECT": "my-project",
+			"GOOGLE_CLOUD_REGION": "us-central1",
+			"GOOGLE_CLOUD_LOCATION": "us-central1"
+		},
+		"resolvedSecrets": [
+			{"name": "GEMINI_API_KEY", "type": "environment", "target": "GEMINI_API_KEY", "value": "sk-test", "source": "grove"},
+			{"name": "GOOGLE_APPLICATION_CREDENTIALS", "type": "file", "target": "/tmp/adc.json", "value": "{}", "source": "user"}
+		],
+		"config": {"template": "gemini", "profile": "default"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(w, req)
+
+	// With GEMINI_API_KEY satisfied, auto-detect should pick api-key (not vertex-ai).
+	// All auth requirements should be met → 201, not 202 requiring gcloud-adc.
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 (API key should satisfy auth), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestEnvGather_AutoDetect_ClaudeAPIKeyWinsOverGCPProject tests the same
+// api-key priority for the claude harness.
+func TestEnvGather_AutoDetect_ClaudeAPIKeyWinsOverGCPProject(t *testing.T) {
+	srv, _, groveDir := newTestServerWithHarnessConfig(t, "claude",
+		"harness: claude\nimage: test-image\nuser: scion\n",
+		`
+schema_version: "1"
+harness_configs:
+  claude:
+    harness: claude
+profiles:
+  default:
+    runtime: mock
+`)
+
+	body := `{
+		"name": "test-agent-claude-apikey-gcp",
+		"id": "agent-uuid-claude-apikey-gcp",
+		"gatherEnv": true,
+		"grovePath": "` + groveDir + `",
+		"resolvedEnv": {
+			"GOOGLE_CLOUD_PROJECT": "my-project",
+			"GOOGLE_CLOUD_REGION": "us-central1"
+		},
+		"resolvedSecrets": [
+			{"name": "ANTHROPIC_API_KEY", "type": "environment", "target": "ANTHROPIC_API_KEY", "value": "sk-ant-test", "source": "grove"}
+		],
+		"config": {"template": "claude", "profile": "default"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 (ANTHROPIC_API_KEY should satisfy auth), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestEnvGather_HarnessAuthOverride tests that the --harness-auth CLI flag
 // (passed as config.harnessAuth) overrides auth type detection in env-gather.
 // This is a regression test: previously, --harness-auth api-key would fail

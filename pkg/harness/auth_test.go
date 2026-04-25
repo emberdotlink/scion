@@ -559,6 +559,13 @@ func TestDetectAuthTypeFromEnvVars(t *testing.T) {
 		{"codex with GAC", "codex", map[string]struct{}{"GOOGLE_APPLICATION_CREDENTIALS": {}}, ""},
 		{"generic with GAC", "generic", map[string]struct{}{"GOOGLE_APPLICATION_CREDENTIALS": {}}, ""},
 		{"claude with unrelated env", "claude", map[string]struct{}{"SOME_OTHER_VAR": {}}, ""},
+		{"claude API key wins over GAC", "claude", map[string]struct{}{"ANTHROPIC_API_KEY": {}, "GOOGLE_APPLICATION_CREDENTIALS": {}}, ""},
+		{"claude API key wins over GCP project", "claude", map[string]struct{}{"ANTHROPIC_API_KEY": {}, "GOOGLE_CLOUD_PROJECT": {}}, ""},
+		{"claude API key alone", "claude", map[string]struct{}{"ANTHROPIC_API_KEY": {}}, ""},
+		{"gemini API key wins over GAC", "gemini", map[string]struct{}{"GEMINI_API_KEY": {}, "GOOGLE_APPLICATION_CREDENTIALS": {}}, ""},
+		{"gemini API key wins over GCP project", "gemini", map[string]struct{}{"GEMINI_API_KEY": {}, "GOOGLE_CLOUD_PROJECT": {}}, ""},
+		{"gemini GOOGLE_API_KEY wins over GAC", "gemini", map[string]struct{}{"GOOGLE_API_KEY": {}, "GOOGLE_APPLICATION_CREDENTIALS": {}}, ""},
+		{"gemini API key alone", "gemini", map[string]struct{}{"GEMINI_API_KEY": {}}, ""},
 	}
 
 	for _, tt := range tests {

@@ -290,6 +290,9 @@ func DetectAuthTypeFromEnvVars(harnessName string, envKeys map[string]struct{}) 
 
 	switch harnessName {
 	case "claude":
+		if _, ok := envKeys["ANTHROPIC_API_KEY"]; ok {
+			return ""
+		}
 		if _, ok := envKeys["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
 			return "oauth-token"
 		}
@@ -297,6 +300,11 @@ func DetectAuthTypeFromEnvVars(harnessName string, envKeys map[string]struct{}) 
 			return "vertex-ai"
 		}
 	case "gemini":
+		_, hasGeminiKey := envKeys["GEMINI_API_KEY"]
+		_, hasGoogleKey := envKeys["GOOGLE_API_KEY"]
+		if hasGeminiKey || hasGoogleKey {
+			return ""
+		}
 		if hasGAC || hasGCP {
 			return "vertex-ai"
 		}
