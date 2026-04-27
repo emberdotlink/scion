@@ -27,7 +27,9 @@ on:
           - common
           - all
           - core-base
+          - scion-base
           - harnesses
+          - hub
         default: 'common'
       tag:
         description: 'Image tag'
@@ -48,7 +50,7 @@ on:
         required: true
         type: string
       target:
-        description: 'Build target (common, all, core-base, harnesses)'
+        description: 'Build target (common, all, core-base, scion-base, harnesses, hub)'
         type: string
         default: 'common'
       tag:

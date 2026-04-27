@@ -13,21 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Deprecation shim for the old trigger-cloudbuild.sh entry point.
+#
+# Forwards to `build-images.sh --builder cloud-build`. The old positional
+# `target` argument and the `--project` / `--registry` flags are translated.
+#
+# This shim will be removed in a future release. New code and CI should
+# call `build-images.sh --builder cloud-build` directly.
+
 set -euo pipefail
 
-# Trigger Cloud Build for scion images.
-#
-# Usage:
-#   trigger-cloudbuild.sh [--project <project>] [--registry <registry>] [target]
-#
-# Examples:
-#   trigger-cloudbuild.sh                              # defaults: project from gcloud, common target
-#   trigger-cloudbuild.sh --project my-gcp-project all
-#   trigger-cloudbuild.sh --registry us-central1-docker.pkg.dev/myproj/scion harnesses
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-cd "${REPO_ROOT}"
 
 PROJECT=""
 REGISTRY=""
@@ -38,84 +34,51 @@ while [[ $# -gt 0 ]]; do
     --project)  PROJECT="$2"; shift 2 ;;
     --registry) REGISTRY="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $(basename "$0") [--project <project>] [--registry <registry>] [target]"
-      echo ""
-      echo "Targets: common (default), all, core-base, scion-base, harnesses"
-      echo ""
-      echo "Options:"
-      echo "  --project <project>    GCP project (default: \$GCLOUD_PROJECT or gcloud config)"
-      echo "  --registry <registry>  Override \$_REGISTRY substitution in Cloud Build"
+      cat <<EOF
+$(basename "$0") is deprecated. Use:
+
+  image-build/scripts/build-images.sh --builder cloud-build --registry <registry> [--target <target>]
+
+Old usage (still supported by this shim):
+  $(basename "$0") [--project <project>] [--registry <registry>] [target]
+EOF
       exit 0
       ;;
-    -*) echo "Unknown option: $1"; exit 1 ;;
+    -*) echo "Unknown option: $1" >&2; exit 1 ;;
     *)  TARGET="$1"; shift ;;
   esac
 done
 
 TARGET="${TARGET:-common}"
 
-# Resolve project
-if [[ -z "${PROJECT}" ]]; then
-  PROJECT="${GCLOUD_PROJECT:-}"
-fi
-if [[ -z "${PROJECT}" ]]; then
-  PROJECT="$(gcloud config get-value project 2>/dev/null)" || true
-fi
-if [[ -z "${PROJECT}" ]]; then
-  echo "Error: Could not determine GCP project."
-  echo "Set --project, \$GCLOUD_PROJECT, or run 'gcloud config set project <project>'."
-  exit 1
-fi
-
-SHORT_SHA=$(git rev-parse --short HEAD)
-COMMIT_SHA=$(git rev-parse HEAD)
-
-# Build substitutions
-SUBSTITUTIONS="_SHORT_SHA=${SHORT_SHA},_COMMIT_SHA=${COMMIT_SHA}"
-if [[ -n "${REGISTRY}" ]]; then
-  SUBSTITUTIONS="${SUBSTITUTIONS},_REGISTRY=${REGISTRY}"
-fi
-
-case "${TARGET}" in
-  common)
-    echo "Submitting common build (scion-base -> harnesses) to Cloud Build..."
-    CONFIG="image-build/cloudbuild-common.yaml"
-    ;;
-  all)
-    echo "Submitting full build (core-base -> scion-base -> harnesses) to Cloud Build..."
-    CONFIG="image-build/cloudbuild.yaml"
-    ;;
-  core-base)
-    echo "Submitting core-base build to Cloud Build..."
-    CONFIG="image-build/cloudbuild-core-base.yaml"
-    ;;
-  scion-base)
-    echo "Submitting scion-base build to Cloud Build..."
-    CONFIG="image-build/cloudbuild-scion-base.yaml"
-    ;;
-  harnesses)
-    echo "Submitting harnesses build to Cloud Build..."
-    CONFIG="image-build/cloudbuild-harnesses.yaml"
-    ;;
-  *)
-    echo "Unknown target: ${TARGET}"
-    echo "Usage: $(basename "$0") [--project <project>] [--registry <registry>] [target]"
-    echo ""
-    echo "Targets:"
-    echo "  common      - Rebuild scion-base + harnesses, skip core-base (default)"
-    echo "  all         - Full rebuild of all images including core-base"
-    echo "  core-base   - Build only core-base (foundation tools)"
-    echo "  scion-base  - Build only scion-base (uses existing core-base:latest)"
-    echo "  harnesses   - Build only harnesses (uses existing scion-base:latest)"
-    exit 1
-    ;;
-esac
-
-gcloud builds submit --async \
-  --project="${PROJECT}" \
-  --substitutions="${SUBSTITUTIONS}" \
-  --config="${CONFIG}" .
-
+echo "Note: trigger-cloudbuild.sh is deprecated."
+echo "      Forwarding to: build-images.sh --builder cloud-build --target ${TARGET}"
 echo ""
-echo "Build submitted. View progress at:"
-echo "  https://console.cloud.google.com/cloud-build/builds?project=${PROJECT}"
+
+# --project is no longer a flag; the cloud-build builder reads $GCLOUD_PROJECT
+# or `gcloud config get-value project`. Translate by exporting the env var
+# for the duration of this invocation.
+if [[ -n "${PROJECT}" ]]; then
+  export GCLOUD_PROJECT="${PROJECT}"
+fi
+
+# --registry is required by build-images.sh. If the caller didn't pass one,
+# fall back to the same Artifact Registry path the old script implicitly
+# resolved at GCB substitution time.
+if [[ -z "${REGISTRY}" ]]; then
+  resolved_project="${GCLOUD_PROJECT:-}"
+  if [[ -z "${resolved_project}" ]]; then
+    resolved_project="$(gcloud config get-value project 2>/dev/null)" || true
+  fi
+  if [[ -z "${resolved_project}" ]]; then
+    echo "Error: could not determine GCP project for default --registry." >&2
+    echo "Pass --registry <path> or set GCLOUD_PROJECT / 'gcloud config set project'." >&2
+    exit 1
+  fi
+  REGISTRY="us-central1-docker.pkg.dev/${resolved_project}/public-docker"
+fi
+
+exec "${SCRIPT_DIR}/build-images.sh" \
+  --builder cloud-build \
+  --registry "${REGISTRY}" \
+  --target "${TARGET}"

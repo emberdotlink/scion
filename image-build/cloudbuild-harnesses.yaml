@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Cloud Build configuration for building just the harness images
-# This builds on top of the existing scion-base:latest image
+# This builds on top of the existing scion-base:<_TAG> image (defaults to scion-base:latest)
 # Use this when you only need to update harness-specific configuration (claude, gemini, etc.)
 steps:
   # Enable multi-arch builds
@@ -39,11 +39,11 @@ steps:
       - '--platform'
       - 'linux/amd64,linux/arm64'
       - '--build-arg'
-      - 'BASE_IMAGE=$_REGISTRY/scion-base:latest'
+      - 'BASE_IMAGE=$_REGISTRY/scion-base:$_TAG'
       - '-t'
       - '$_REGISTRY/scion-gemini:$_SHORT_SHA'
       - '-t'
-      - '$_REGISTRY/scion-gemini:latest'
+      - '$_REGISTRY/scion-gemini:$_TAG'
       - '-f'
       - 'Dockerfile'
       - '--pull'
@@ -62,11 +62,11 @@ steps:
       - '--platform'
       - 'linux/amd64,linux/arm64'
       - '--build-arg'
-      - 'BASE_IMAGE=$_REGISTRY/scion-base:latest'
+      - 'BASE_IMAGE=$_REGISTRY/scion-base:$_TAG'
       - '-t'
       - '$_REGISTRY/scion-claude:$_SHORT_SHA'
       - '-t'
-      - '$_REGISTRY/scion-claude:latest'
+      - '$_REGISTRY/scion-claude:$_TAG'
       - '-f'
       - 'Dockerfile'
       - '--pull'
@@ -85,11 +85,11 @@ steps:
       - '--platform'
       - 'linux/amd64,linux/arm64'
       - '--build-arg'
-      - 'BASE_IMAGE=$_REGISTRY/scion-base:latest'
+      - 'BASE_IMAGE=$_REGISTRY/scion-base:$_TAG'
       - '-t'
       - '$_REGISTRY/scion-opencode:$_SHORT_SHA'
       - '-t'
-      - '$_REGISTRY/scion-opencode:latest'
+      - '$_REGISTRY/scion-opencode:$_TAG'
       - '-f'
       - 'Dockerfile'
       - '--pull'
@@ -108,11 +108,11 @@ steps:
       - '--platform'
       - 'linux/amd64,linux/arm64'
       - '--build-arg'
-      - 'BASE_IMAGE=$_REGISTRY/scion-base:latest'
+      - 'BASE_IMAGE=$_REGISTRY/scion-base:$_TAG'
       - '-t'
       - '$_REGISTRY/scion-codex:$_SHORT_SHA'
       - '-t'
-      - '$_REGISTRY/scion-codex:latest'
+      - '$_REGISTRY/scion-codex:$_TAG'
       - '-f'
       - 'Dockerfile'
       - '--pull'
@@ -123,6 +123,7 @@ steps:
 
 substitutions:
   _REGISTRY: 'us-central1-docker.pkg.dev/${PROJECT_ID}/public-docker'
+  _TAG: 'latest'
 options:
   dynamicSubstitutions: true
   machineType: 'E2_HIGHCPU_8'

@@ -12,12 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Cloud Build configuration for building just the core-base image
-# This is the foundation layer with Go, Git, unix tools, and GCS fuse
-# Use this when you only need to update the core foundation tools
-#
-# Note: Build and push are split into separate steps to avoid OAuth token
-# expiration during long builds. The push step gets a fresh token.
+# Cloud Build configuration for building just the scion-hub image.
+# This builds on top of the existing scion-base:<_TAG> image.
+# Use this when you only need to update the hub server image.
 steps:
   # Enable multi-arch builds
   - name: 'gcr.io/cloud-builders/docker'
@@ -32,44 +29,24 @@ steps:
     env:
       - 'DOCKER_CLI_EXPERIMENTAL=enabled'
 
-  # Build core-base image and cache locally (no push yet)
+  # Build and push scion-hub image (uses existing scion-base:<_TAG>)
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'build-core-base'
-    dir: 'image-build/core-base'
+    id: 'build-scion-hub'
+    dir: 'image-build/hub'
     args:
       - 'buildx'
       - 'build'
       - '--platform'
       - 'linux/amd64,linux/arm64'
-      - '--cache-to'
-      - 'type=local,dest=/workspace/buildx-cache,mode=max'
+      - '--build-arg'
+      - 'BASE_IMAGE=$_REGISTRY/scion-base:$_TAG'
       - '-t'
-      - '$_REGISTRY/core-base:$_SHORT_SHA'
+      - '$_REGISTRY/scion-hub:$_SHORT_SHA'
       - '-t'
-      - '$_REGISTRY/core-base:$_TAG'
+      - '$_REGISTRY/scion-hub:$_TAG'
       - '-f'
       - 'Dockerfile'
-      - '.'
-    env:
-      - 'DOCKER_CLI_EXPERIMENTAL=enabled'
-
-  # Push core-base image (gets fresh OAuth token, uses cached layers)
-  - name: 'gcr.io/cloud-builders/docker'
-    id: 'push-core-base'
-    dir: 'image-build/core-base'
-    args:
-      - 'buildx'
-      - 'build'
-      - '--platform'
-      - 'linux/amd64,linux/arm64'
-      - '--cache-from'
-      - 'type=local,src=/workspace/buildx-cache'
-      - '-t'
-      - '$_REGISTRY/core-base:$_SHORT_SHA'
-      - '-t'
-      - '$_REGISTRY/core-base:$_TAG'
-      - '-f'
-      - 'Dockerfile'
+      - '--pull'
       - '--push'
       - '.'
     env:
@@ -81,4 +58,4 @@ substitutions:
 options:
   dynamicSubstitutions: true
   machineType: 'E2_HIGHCPU_8'
-timeout: 10800s # 3 hours for core-base build
+timeout: 1800s # 30 minutes - hub is lightweight, just adds a CMD

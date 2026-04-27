@@ -10,10 +10,11 @@ core-base          System dependencies (Go, Node, Python)
         ├── claude     Claude Code harness
         ├── gemini     Gemini CLI harness
         ├── opencode   OpenCode harness
-        └── codex      Codex harness
+        ├── codex      Codex harness
+        └── hub        Scion hub server
 ```
 
-Each harness directory contains a `Dockerfile` that extends `scion-base` with harness-specific tooling.
+Each harness directory (and `hub/`) contains a `Dockerfile` that extends `scion-base` with image-specific tooling.
 
 ## Scripts
 
@@ -21,19 +22,60 @@ All image-related scripts live under `scripts/`. GitHub Actions workflows remain
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/build-images.sh` | Build images locally using `docker buildx` |
-| `scripts/trigger-cloudbuild.sh` | Submit a build to Google Cloud Build |
-| `scripts/pull-containers.sh` | Pull pre-built images (auto-detects runtime) |
-| `scripts/setup-cloud-build.sh` | One-time GCP setup (APIs, Artifact Registry, permissions) |
-| `.github/workflows/build-images.yml` | GitHub Actions workflow for building and pushing images |
+| `scripts/build-images.sh` | Orchestrator. Build images via a pluggable backend (`--builder`). |
+| `scripts/builders/*.sh` | Backend adapters (local-docker, local-podman, cloud-build). |
+| `scripts/lib/targets.sh` | Target → step list resolution. Single source of truth for the build DAG. |
+| `scripts/trigger-cloudbuild.sh` | Deprecation shim. Forwards to `build-images.sh --builder cloud-build`. |
+| `scripts/pull-containers.sh` | Pull pre-built images (auto-detects runtime). |
+| `scripts/setup-cloud-build.sh` | One-time GCP setup (APIs, Artifact Registry, permissions). |
+| `.github/workflows/build-images.yml` | GitHub Actions workflow for building and pushing images. |
+
+### Builders
+
+`build-images.sh` selects an execution backend with `--builder <name>`. Three are bundled:
+
+| Builder | Backend | Multi-arch | Push behavior |
+|---|---|---|---|
+| `local-docker` (default) | `docker buildx` | yes (auto-promotes to `--push`) | honors `--push`; `--load` otherwise |
+| `local-podman` | `podman build` | single-arch by default; multi-arch errors out (manual QEMU setup required) | honors `--push`; built images live in the local store automatically |
+| `cloud-build` | `gcloud builds submit` against a static `cloudbuild-*.yaml` | always amd64+arm64 (server-side) | always pushes |
+
+The orchestrator owns target sequencing, tag computation, and BASE_IMAGE threading. Each builder only knows how to execute one image build (per-image mode) or one target submission (target mode).
+
+### Targets
+
+| Target | What gets built | Notes |
+|---|---|---|
+| `core-base` | `core-base` | Foundation tools layer. |
+| `scion-base` | `scion-base` | Adds sciontool. Uses existing `core-base:<tag>`. |
+| `harnesses` | `scion-claude`, `scion-gemini`, `scion-opencode`, `scion-codex` | Uses existing `scion-base:<tag>`. |
+| `hub` | `scion-hub` | Hub server image. Uses existing `scion-base:<tag>`. |
+| `common` (default) | `scion-base` + harnesses + hub | Skips `core-base`. Most common rebuild. |
+| `all` | Full DAG | Rebuilds everything from `core-base`. |
+
+### Tagging
+
+Every image is tagged with both `:<tag>` (controlled by `--tag`, defaults to `latest`) and `:<short-sha>` (computed once from `git rev-parse --short HEAD`). When no SHA is available (e.g. running outside a git working tree), only the mutable tag is emitted.
+
+When two steps in the same run depend on each other, the orchestrator threads `BASE_IMAGE=...:<short-sha>` so chained builds are immune to concurrent overwrites of `:latest`. Standalone targets (e.g. `--target harnesses` on its own) reference the parent image as `:<tag>`.
 
 ### Quick Start: Build Your Own Images
 
 ```bash
-# Build and push to your registry
+# Build and push to your registry (default builder: local-docker)
 image-build/scripts/build-images.sh --registry ghcr.io/myorg --push
 
-# Configure scion to use them
+# Use Podman instead (single-arch by default)
+image-build/scripts/build-images.sh --builder local-podman --registry quay.io/myorg --push
+
+# Submit to Cloud Build
+image-build/scripts/build-images.sh --builder cloud-build \
+  --registry us-central1-docker.pkg.dev/myproj/scion --target all
+
+# Preview what would run, without executing
+image-build/scripts/build-images.sh --target all --platform all --dry-run
+
+# Configure scion to use the images you built
 scion config set image_registry ghcr.io/myorg
 ```
 
@@ -44,8 +86,11 @@ scion config set image_registry ghcr.io/myorg
 image-build/scripts/setup-cloud-build.sh --project my-project
 
 # Trigger a build
-image-build/scripts/trigger-cloudbuild.sh --project my-project
+image-build/scripts/build-images.sh --builder cloud-build \
+  --registry us-central1-docker.pkg.dev/my-project/public-docker
 ```
+
+The legacy `trigger-cloudbuild.sh` script still works as a deprecation shim and forwards to the orchestrator.
 
 ### Quick Start: GitHub Actions (GHCR)
 
@@ -54,12 +99,23 @@ image-build/scripts/trigger-cloudbuild.sh --project my-project
 3. Enter `ghcr.io/<your-username>` as the registry.
 4. Run `scion config set image_registry ghcr.io/<your-username>`.
 
-The workflow is also available as a reusable workflow via `workflow_call` for use in downstream repos.
+The workflow shells out to `build-images.sh --builder local-docker`. It is also available as a reusable workflow via `workflow_call` for use in downstream repos.
 
 ## Cloud Build Configs
 
-- `cloudbuild.yaml` - Full rebuild of all layers.
-- `cloudbuild-common.yaml` - Rebuild scion-base + harnesses (most common).
-- `cloudbuild-core-base.yaml` - Rebuild `core-base` only.
-- `cloudbuild-scion-base.yaml` - Rebuild `scion-base` only.
-- `cloudbuild-harnesses.yaml` - Rebuild all harness images only.
+The `cloud-build` builder maps each `--target` to a static YAML file:
+
+| Target | Config file |
+|---|---|
+| `all` | `cloudbuild.yaml` |
+| `common` | `cloudbuild-common.yaml` |
+| `core-base` | `cloudbuild-core-base.yaml` |
+| `scion-base` | `cloudbuild-scion-base.yaml` |
+| `harnesses` | `cloudbuild-harnesses.yaml` |
+| `hub` | `cloudbuild-hub.yaml` |
+
+These YAMLs reference `$_TAG`, `$_SHORT_SHA`, `$_COMMIT_SHA`, and `$_REGISTRY` substitutions, all forwarded by the orchestrator.
+
+## Authentication
+
+The orchestrator and builders assume the caller is already authenticated to the target registry (via `docker login`, `podman login`, `gcloud auth configure-docker`, etc.) and to any required cloud APIs. No login steps are performed inside the script.

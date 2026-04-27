@@ -1,6 +1,6 @@
 ---
 title: Building Custom Images
-description: Build and configure your own Scion container images using Docker, GitHub Actions, or Google Cloud Build.
+description: Build and configure your own Scion container images using Docker, Podman, GitHub Actions, or Google Cloud Build.
 ---
 
 Scion agents run inside container images that bundle an LLM harness (Claude, Gemini, etc.) with the Scion toolchain. By default, Scion uses pre-built images from the upstream registry. This guide shows how to build your own images and configure Scion to use them.
@@ -21,10 +21,11 @@ core-base          System dependencies (Go, Node, Python, Git)
         ├── scion-claude     Claude Code harness
         ├── scion-gemini     Gemini CLI harness
         ├── scion-opencode   OpenCode harness
-        └── scion-codex      Codex harness
+        ├── scion-codex      Codex harness
+        └── scion-hub        Scion hub server
 ```
 
-The `core-base` layer changes infrequently, but needs to be built at least once as it is a prerequisite for all other layers. Most rebuilds only need `scion-base` and the harness layers (the `common` build target).
+The `core-base` layer changes infrequently, but needs to be built at least once as it is a prerequisite for all other layers. Most rebuilds only need `scion-base`, the harness layers, and the hub layer (the `common` build target).
 
 ### Non-Root Requirement
 
@@ -34,6 +35,18 @@ For security and compatibility across runtimes (especially Kubernetes), Scion ag
 - **UID**: The user must have UID `1000`.
 - **Permissions**: Ensure your custom images do not require root privileges at runtime and that any added files or directories are accessible by the `scion` user. Home directory structure (`/home/scion`) and environmental variables (`HOME`, `USER`, `LOGNAME`) are automatically injected by the runtime.
 
+## How the Build Tooling Is Organized
+
+A single orchestrator script — `image-build/scripts/build-images.sh` — owns the build DAG (which images depend on which, in what order, with which tags). The execution backend is selected with `--builder`. Three backends ship today:
+
+| Builder | Backend | Multi-arch | Push behavior |
+| :--- | :--- | :--- | :--- |
+| `local-docker` (default) | `docker buildx` | yes (auto-promotes to `--push`) | honors `--push`; `--load` otherwise |
+| `local-podman` | `podman build` | single-arch by default; multi-arch errors out (manual QEMU setup required) | honors `--push`; built images live in the local store automatically |
+| `cloud-build` | `gcloud builds submit` against a static `cloudbuild-*.yaml` | always `linux/amd64` + `linux/arm64` (server-side) | always pushes |
+
+The orchestrator computes tags, threads `BASE_IMAGE` between layers, and dispatches to the selected builder. Switching backends is purely a `--builder` flag change — target names and other flags are uniform.
+
 ## Quick Start
 
 ### Option 1: Local Docker Build
@@ -41,14 +54,27 @@ For security and compatibility across runtimes (especially Kubernetes), Scion ag
 Build all images locally and push to your registry. Once `core-base` has been built, rebuilds can often use the default `common` build target.
 
 ```bash
-# Build all layers (core-base, scion-base, and harnesses), then push
+# Build all layers (core-base, scion-base, harnesses, hub), then push
+# (default builder: local-docker)
 image-build/scripts/build-images.sh --registry ghcr.io/myorg --push --target all
 
 # Configure Scion to use them
 scion config set image_registry ghcr.io/myorg
 ```
 
-### Option 2: GitHub Actions (GHCR)
+### Option 2: Local Podman Build
+
+```bash
+# Single-arch build (native arch only)
+image-build/scripts/build-images.sh \
+  --builder local-podman \
+  --registry quay.io/myorg \
+  --push
+```
+
+Multi-arch Podman builds require manual QEMU `binfmt` setup. Until that is in place, passing `--platform linux/amd64,linux/arm64` to `local-podman` exits with an actionable error.
+
+### Option 3: GitHub Actions (GHCR)
 
 If your project is hosted on GitHub:
 
@@ -61,9 +87,9 @@ If your project is hosted on GitHub:
    scion config set image_registry ghcr.io/<your-username>
    ```
 
-The workflow builds multi-platform images (`linux/amd64` and `linux/arm64`) and pushes them to GHCR using the repository's `GITHUB_TOKEN`.
+The workflow shells out to `build-images.sh --builder local-docker` after `docker/setup-buildx-action`, so it shares all the orchestration logic with local builds. It is also available as a reusable workflow via `workflow_call` for downstream repos.
 
-### Option 3: Google Cloud Build
+### Option 4: Google Cloud Build
 
 For GCP-based workflows:
 
@@ -71,15 +97,21 @@ For GCP-based workflows:
 # One-time setup: enable APIs, create Artifact Registry repo, grant permissions
 image-build/scripts/setup-cloud-build.sh --project my-gcp-project
 
-# Trigger a build
-image-build/scripts/trigger-cloudbuild.sh --project my-gcp-project
+# Submit a build
+image-build/scripts/build-images.sh \
+  --builder cloud-build \
+  --registry us-central1-docker.pkg.dev/my-gcp-project/scion
 ```
 
-Then configure Scion with the registry path printed by the setup script:
+Then point Scion at the registry:
 
 ```bash
 scion config set image_registry us-central1-docker.pkg.dev/my-gcp-project/scion
 ```
+
+:::note[Legacy `trigger-cloudbuild.sh`]
+The old `trigger-cloudbuild.sh` script is now a thin deprecation shim that forwards to `build-images.sh --builder cloud-build`. New workflows should call the orchestrator directly.
+:::
 
 ## Configuring Scion: `image_registry`
 
@@ -140,24 +172,40 @@ If any higher-priority override specifies a full image path, `image_registry` do
 
 ## Build Script Reference
 
-The `image-build/scripts/build-images.sh` script supports the following options:
+The `image-build/scripts/build-images.sh` orchestrator supports the following options:
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
 | `--registry <path>` | **Required.** Target registry path (e.g., `ghcr.io/myorg`). | — |
-| `--target <target>` | Build target: `common`, `all`, `core-base`, or `harnesses`. | `common` |
-| `--push` | Push images after building. | Build only |
-| `--platform <plat>` | Target platform(s). Use `all` for `linux/amd64,linux/arm64`. | Current arch |
-| `--tag <tag>` | Image tag. | `latest` |
+| `--builder <name>` | Backend: `local-docker`, `local-podman`, or `cloud-build`. | `local-docker` |
+| `--target <target>` | Build target (see below). | `common` |
+| `--tag <tag>` | Mutable image tag. The `:<short-sha>` tag is always added when in a git repo. | `latest` |
+| `--platform <plat>` | Target platform(s). Use `all` for `linux/amd64,linux/arm64`. Ignored by `cloud-build`. | builder's native arch |
+| `--push` | Push images after building. Auto-enabled for multi-arch local builds. Ignored by `cloud-build` (always pushes). | build only |
+| `--dry-run` | Print the resolved steps and the exact builder commands without executing. | off |
 
 ### Build Targets
 
-| Target | What It Builds |
-| :--- | :--- |
-| `common` | `scion-base` + all harness images (assumes `core-base` already exists). |
-| `all` | Full rebuild: `core-base` + `scion-base` + all harnesses. |
-| `core-base` | Only the `core-base` layer. |
-| `harnesses` | Only the harness images (assumes `scion-base` already exists). |
+Targets resolve to an ordered list of step IDs (one step per image):
+
+| Target | What It Builds | Notes |
+| :--- | :--- | :--- |
+| `core-base` | `core-base` | Foundation tools layer. |
+| `scion-base` | `scion-base` | Adds sciontool. Reuses existing `core-base:<tag>`. |
+| `harnesses` | `scion-claude`, `scion-gemini`, `scion-opencode`, `scion-codex` | Reuses existing `scion-base:<tag>`. |
+| `hub` | `scion-hub` | Hub server image. Reuses existing `scion-base:<tag>`. |
+| `common` (default) | `scion-base` + harnesses + hub | Skips `core-base`. Most common rebuild. |
+| `all` | Full DAG | Rebuilds everything from `core-base`. |
+
+### Tagging
+
+Every image is tagged with both `:<tag>` (controlled by `--tag`, defaults to `latest`) and `:<short-sha>` (computed once from `git rev-parse --short HEAD`). When no SHA is available (e.g. running outside a git working tree), only the mutable tag is emitted.
+
+When two steps in the same run depend on each other, the orchestrator threads `BASE_IMAGE=...:<short-sha>` so chained builds are immune to concurrent overwrites of `:latest`. Standalone targets (e.g. `--target harnesses` on its own) reference the parent image as `:<tag>`.
+
+### Authentication
+
+The orchestrator and builders assume the caller is already authenticated to the target registry (via `docker login`, `podman login`, `gcloud auth configure-docker`, etc.) and to any required cloud APIs. No login steps are performed inside the script.
 
 ### Examples
 
@@ -179,6 +227,19 @@ image-build/scripts/build-images.sh \
 # Local build for testing (no push, current architecture only)
 image-build/scripts/build-images.sh \
   --registry local/test
+
+# Preview what would run, without executing anything
+image-build/scripts/build-images.sh \
+  --registry ghcr.io/myorg \
+  --target all \
+  --platform all \
+  --dry-run
+
+# Submit the same target DAG to Cloud Build
+image-build/scripts/build-images.sh \
+  --builder cloud-build \
+  --registry us-central1-docker.pkg.dev/myproject/scion \
+  --target all
 ```
 
 ## GitHub Actions Workflow
@@ -204,16 +265,22 @@ jobs:
       platform: all
 ```
 
-## Google Cloud Build
+The workflow is a runner, not a builder — it shells out to `build-images.sh --builder local-docker` and shares the same Dockerfiles and orchestration as a local build.
 
-Scion includes Cloud Build configuration files for GCP-native builds:
+## Google Cloud Build Configs
 
-| Config File | Purpose |
+The `cloud-build` builder maps each `--target` to a static YAML file in `image-build/`:
+
+| Target | Config file |
 | :--- | :--- |
-| `cloudbuild.yaml` | Full rebuild of all layers. |
-| `cloudbuild-common.yaml` | Rebuild `scion-base` + harnesses (most common). |
-| `cloudbuild-core-base.yaml` | Rebuild `core-base` only. |
-| `cloudbuild-harnesses.yaml` | Rebuild all harness images only. |
+| `all` | `cloudbuild.yaml` |
+| `common` | `cloudbuild-common.yaml` |
+| `core-base` | `cloudbuild-core-base.yaml` |
+| `scion-base` | `cloudbuild-scion-base.yaml` |
+| `harnesses` | `cloudbuild-harnesses.yaml` |
+| `hub` | `cloudbuild-hub.yaml` |
+
+These YAMLs reference `$_TAG`, `$_SHORT_SHA`, `$_COMMIT_SHA`, and `$_REGISTRY` substitutions, all forwarded by the orchestrator. `_TAG` defaults to `latest` in each YAML's `substitutions:` block, preserving the prior behavior when `--tag` is omitted.
 
 ### Initial Setup
 
@@ -227,13 +294,3 @@ This script:
 - Enables the Cloud Build and Artifact Registry APIs.
 - Creates an Artifact Registry repository named `scion`.
 - Grants Cloud Build the necessary IAM permissions.
-
-### Triggering Builds
-
-```bash
-# Build everything (default: cloudbuild-common.yaml)
-image-build/scripts/trigger-cloudbuild.sh --project my-gcp-project
-
-# Full rebuild including core-base
-image-build/scripts/trigger-cloudbuild.sh --project my-gcp-project --config cloudbuild.yaml
-```
