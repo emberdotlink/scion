@@ -3185,6 +3185,26 @@ func (s *SQLiteStore) ListHarnessConfigs(ctx context.Context, filter store.Harne
 		harnessConfigs = append(harnessConfigs, hc)
 	}
 
+	// When querying by GroveID without explicit Scope, the query returns both
+	// global and grove-scoped configs. Deduplicate by slug, preferring the more
+	// specific scope (grove > global).
+	if filter.GroveID != "" && filter.Scope == "" {
+		seen := make(map[string]int, len(harnessConfigs))
+		deduped := make([]store.HarnessConfig, 0, len(harnessConfigs))
+		for _, hc := range harnessConfigs {
+			if idx, exists := seen[hc.Slug]; exists {
+				if hc.Scope == "grove" && deduped[idx].Scope == "global" {
+					deduped[idx] = hc
+				}
+			} else {
+				seen[hc.Slug] = len(deduped)
+				deduped = append(deduped, hc)
+			}
+		}
+		harnessConfigs = deduped
+		totalCount = len(deduped)
+	}
+
 	return &store.ListResult[store.HarnessConfig]{
 		Items:      harnessConfigs,
 		TotalCount: totalCount,

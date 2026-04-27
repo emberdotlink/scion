@@ -1574,6 +1574,65 @@ func TestHarnessConfigList(t *testing.T) {
 	assert.Equal(t, 1, result.TotalCount)
 }
 
+func TestHarnessConfigListDeduplication(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+	groveID := "grove-dedup-test"
+
+	globalHC := &store.HarnessConfig{
+		ID:      api.NewUUID(),
+		Name:    "gemini",
+		Slug:    "gemini",
+		Harness: "gemini",
+		Scope:   "global",
+	}
+	groveHC := &store.HarnessConfig{
+		ID:      api.NewUUID(),
+		Name:    "gemini",
+		Slug:    "gemini",
+		Harness: "gemini",
+		Scope:   "grove",
+		ScopeID: groveID,
+	}
+	globalOnly := &store.HarnessConfig{
+		ID:      api.NewUUID(),
+		Name:    "claude",
+		Slug:    "claude",
+		Harness: "claude",
+		Scope:   "global",
+	}
+	groveOnly := &store.HarnessConfig{
+		ID:      api.NewUUID(),
+		Name:    "opencode",
+		Slug:    "opencode",
+		Harness: "opencode",
+		Scope:   "grove",
+		ScopeID: groveID,
+	}
+
+	for _, hc := range []*store.HarnessConfig{globalHC, groveHC, globalOnly, groveOnly} {
+		require.NoError(t, s.CreateHarnessConfig(ctx, hc))
+	}
+
+	// Without GroveID filter: returns all 4 records (no dedup)
+	result, err := s.ListHarnessConfigs(ctx, store.HarnessConfigFilter{}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 4, result.TotalCount)
+
+	// With GroveID filter: deduplicates, preferring grove-scoped
+	result, err = s.ListHarnessConfigs(ctx, store.HarnessConfigFilter{GroveID: groveID}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 3, result.TotalCount)
+
+	slugs := map[string]string{}
+	for _, hc := range result.Items {
+		slugs[hc.Slug] = hc.Scope
+	}
+	assert.Equal(t, "grove", slugs["gemini"], "grove-scoped should win over global")
+	assert.Equal(t, "global", slugs["claude"], "global-only config should still appear")
+	assert.Equal(t, "grove", slugs["opencode"], "grove-only config should still appear")
+}
+
 // ============================================================================
 // User Tests
 // ============================================================================
