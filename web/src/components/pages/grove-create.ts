@@ -69,6 +69,27 @@ export class ScionPageGroveCreate extends LitElement {
   @state()
   private gitWorkspaceMode: GitWorkspaceMode = 'per-agent';
 
+  @state()
+  private githubAppUrl: string | null = null;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.checkGitHubApp();
+  }
+
+  private async checkGitHubApp(): Promise<void> {
+    try {
+      const res = await fetch('/api/v1/github-app', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = (await res.json()) as { configured: boolean; installation_url?: string };
+      if (data.configured && data.installation_url) {
+        this.githubAppUrl = data.installation_url;
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
   override updated(changedProperties: Map<string, unknown>): void {
     super.updated(changedProperties);
     if (changedProperties.has('error') && this.error) {
@@ -203,6 +224,33 @@ export class ScionPageGroveCreate extends LitElement {
     .info-banner sl-icon {
       flex-shrink: 0;
       margin-top: 0.125rem;
+    }
+
+    .github-app-hint {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--scion-text-muted, #64748b);
+      margin-bottom: 1.25rem;
+      padding: 0.625rem 0.75rem;
+      background: var(--scion-bg-subtle, #f1f5f9);
+      border-radius: var(--scion-radius, 0.5rem);
+    }
+
+    .github-app-hint sl-icon {
+      flex-shrink: 0;
+      font-size: 1rem;
+    }
+
+    .github-app-hint a {
+      color: var(--scion-primary, #3b82f6);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .github-app-hint a:hover {
+      text-decoration: underline;
     }
 
     .exists-dialog-body {
@@ -440,6 +488,17 @@ export class ScionPageGroveCreate extends LitElement {
                     HTTPS or SSH URL of the git repository.
                   </div>
                 </div>
+
+                ${this.githubAppUrl
+                  ? html`
+                      <div class="github-app-hint">
+                        <sl-icon name="github"></sl-icon>
+                        <span>Ensure this repository is accessible via the
+                          <a href=${this.githubAppUrl} target="_blank" rel="noopener">GitHub App <sl-icon name="box-arrow-up-right" style="font-size: 0.7em; vertical-align: middle;"></sl-icon></a>
+                        </span>
+                      </div>
+                    `
+                  : nothing}
 
                 ${this.existingGrovesForRemote.length > 0
                   ? html`
