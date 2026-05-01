@@ -2379,6 +2379,10 @@ export class ScionPageAdminServerConfig extends LitElement {
             <strong>restart the service</strong>. You will temporarily lose
             connectivity.
           </p>
+          <p>
+            Running agent containers are not affected and will continue
+            working through the restart.
+          </p>
           ${this.updateCheckResult
             ? html`<p>
                 <strong>${this.updateCheckResult.commits_behind}</strong> new
