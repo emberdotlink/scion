@@ -16,21 +16,21 @@ package chatapp
 
 // ChatEvent represents a normalized inbound event from a chat platform.
 type ChatEvent struct {
-	Type           ChatEventType
-	Platform       string
-	SpaceID        string
-	ThreadID       string
-	UserID         string
-	UserEmail      string // user's email from the chat platform (Google-asserted identity)
+	Type            ChatEventType
+	Platform        string
+	SpaceID         string
+	ThreadID        string
+	UserID          string
+	UserEmail       string // user's email from the chat platform (Google-asserted identity)
 	UserDisplayName string
-	Text           string
-	Command        string
-	Args           string
-	ActionID       string
-	ActionData     string
-	DialogData     map[string]string
-	InteractionAdd bool // true when added to space via @mention (multi-turn)
-	IsDialogEvent  bool // true when the event is a dialog request/submit
+	Text            string
+	Command         string
+	Args            string
+	ActionID        string
+	ActionData      string
+	DialogData      map[string]string
+	InteractionAdd  bool // true when added to space via @mention (multi-turn)
+	IsDialogEvent   bool // true when the event is a dialog request/submit
 }
 
 // EventResponse holds an optional synchronous response to return in the HTTP body.

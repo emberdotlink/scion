@@ -200,6 +200,7 @@ cat > "${TMPDIR}/scion-chat-app.yaml" <<EOF
 hub:
   endpoint: "${SCION_HUB_ENDPOINT}"
   user: "${CHAT_APP_HUB_USER}"
+  project: "${SCION_GCP_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-}}"
   signing_key: "${CHAT_APP_HUB_SIGNING_KEY:-}"
   signing_key_secret: "${CHAT_APP_HUB_SIGNING_KEY_SECRET:-}"
 

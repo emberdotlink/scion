@@ -27,6 +27,7 @@ import (
 	"github.com/GoogleCloudPlatform/scion/pkg/plugin"
 	goplugin "github.com/hashicorp/go-plugin"
 )
+
 // MessageHandler is called when a message is received from the Hub via the broker plugin.
 type MessageHandler func(ctx context.Context, topic string, msg *messages.StructuredMessage) error
 
@@ -142,7 +143,7 @@ func (b *BrokerServer) SetHostCallbacks(hc plugin.HostCallbacks) {
 		subs = append(subs, p)
 	}
 	b.mu.Unlock()
-	
+
 	b.log.Info("host callbacks connected")
 
 	go func() {
@@ -154,7 +155,7 @@ func (b *BrokerServer) SetHostCallbacks(hc plugin.HostCallbacks) {
 					b.log.Info("subscribed to deferred pattern", "pattern", pattern)
 					break
 				}
-				
+
 				if err.Error() == "host callbacks not yet available" {
 					b.log.Debug("host callbacks not ready yet, retrying...", "pattern", pattern, "attempt", i+1)
 					time.Sleep(time.Second)

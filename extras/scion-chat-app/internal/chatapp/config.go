@@ -28,6 +28,7 @@ type Config struct {
 type HubConfig struct {
 	Endpoint         string `yaml:"endpoint"`
 	User             string `yaml:"user"`
+	Project          string `yaml:"project"`
 	SigningKey       string `yaml:"signing_key"`
 	SigningKeySecret string `yaml:"signing_key_secret"`
 }

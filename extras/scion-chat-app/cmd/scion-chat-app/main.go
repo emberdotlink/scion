@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -92,9 +93,18 @@ func main() {
 		log.Info("loaded signing key from Secret Manager", "secret", cfg.Hub.SigningKeySecret)
 	default:
 		// Auto-discover the signing key from GCP Secret Manager by label.
-		projectID := cfg.Platforms.GoogleChat.ProjectID
+		// Prefer the hub's explicit project, then the GCE metadata project
+		// (which matches the VM where IAM permissions are granted), then
+		// fall back to the Google Chat project.
+		projectID := cfg.Hub.Project
 		if projectID == "" {
-			log.Error("hub signing_key, signing_key_secret, or platforms.google_chat.project_id (for auto-discovery) is required")
+			projectID = gceProjectID()
+		}
+		if projectID == "" {
+			projectID = cfg.Platforms.GoogleChat.ProjectID
+		}
+		if projectID == "" {
+			log.Error("cannot auto-discover signing key: set hub.project, hub.signing_key, or hub.signing_key_secret in the config")
 			os.Exit(1)
 		}
 		log.Info("no signing key configured, searching Secret Manager by label", "project_id", projectID)
@@ -102,7 +112,11 @@ func main() {
 		val, secretName, err := discoverSigningKey(smCtx, projectID)
 		smCancel()
 		if err != nil {
-			log.Error("failed to auto-discover signing key from Secret Manager", "project_id", projectID, "error", err)
+			log.Error("failed to auto-discover signing key from Secret Manager",
+				"project_id", projectID,
+				"error", err,
+				"hint", "set hub.signing_key (local file) or hub.signing_key_secret (explicit SM resource) to bypass auto-discovery, or grant the VM service account roles/secretmanager.secretAccessor on the project",
+			)
 			os.Exit(1)
 		}
 		signingKeyB64 = strings.TrimSpace(val)
@@ -550,6 +564,31 @@ func accessSecret(ctx context.Context, resourceName string) (string, error) {
 		return "", fmt.Errorf("accessing secret version: %w", err)
 	}
 	return string(resp.Payload.Data), nil
+}
+
+// gceProjectID returns the GCP project ID from the GCE metadata server,
+// or "" if not running on GCE or the metadata is unavailable.
+func gceProjectID() string {
+	client := &http.Client{Timeout: 2 * time.Second}
+	req, err := http.NewRequest(http.MethodGet,
+		"http://metadata.google.internal/computeMetadata/v1/project/project-id", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Metadata-Flavor", "Google")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // initLogger creates a structured logger from the logging configuration.
