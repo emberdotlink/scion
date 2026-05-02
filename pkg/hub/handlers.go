@@ -1991,10 +1991,9 @@ func (s *Server) handleAgentOutboundMessage(w http.ResponseWriter, r *http.Reque
 			}
 		}
 
-		// Ensure the recipient string has the "user:" prefix even if
-		// resolution failed (best-effort delivery).
-		if !strings.HasPrefix(recipient, "user:") {
-			recipient = "user:" + recipient
+		if recipientID == "" {
+			ValidationError(w, fmt.Sprintf("recipient %q could not be resolved to a known user", req.Recipient), nil)
+			return
 		}
 	}
 

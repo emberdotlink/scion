@@ -27,8 +27,10 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/agent/state"
+	"github.com/GoogleCloudPlatform/scion/pkg/api"
 	"github.com/GoogleCloudPlatform/scion/pkg/store"
 	"github.com/GoogleCloudPlatform/scion/pkg/store/sqlite"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 // testDevToken is the development token used for testing.
@@ -2579,5 +2581,64 @@ func TestEnrichAgent_ResolvesTemplateSlug(t *testing.T) {
 
 	if agent.Template != "single-enriched" {
 		t.Errorf("expected enriched Template %q, got %q", "single-enriched", agent.Template)
+	}
+}
+
+func TestOutboundMessage_UnknownRecipient(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:         api.NewUUID(),
+		Name:       "msg-grove",
+		Slug:       "msg-grove",
+		Visibility: store.VisibilityPrivate,
+	}
+	if err := s.CreateGrove(ctx, grove); err != nil {
+		t.Fatal(err)
+	}
+
+	rb := &store.RuntimeBroker{
+		ID:       "broker-msg",
+		Name:     "test-broker",
+		Slug:     "test-broker",
+		Endpoint: "http://localhost:9800",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := s.CreateRuntimeBroker(ctx, rb); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := &store.Agent{
+		ID:              api.NewUUID(),
+		Name:            "sender",
+		Slug:            "sender",
+		GroveID:         grove.ID,
+		Phase:           "running",
+		RuntimeBrokerID: "broker-msg",
+		Visibility:      store.VisibilityPrivate,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(OutboundMessageRequest{
+		Recipient: "user:nonexistent@example.com",
+		Msg:       "hello",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/"+agent.ID+"/outbound-message", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	agentIdent := &agentIdentityWrapper{&AgentTokenClaims{
+		Claims:  jwt.Claims{Subject: agent.ID},
+		GroveID: grove.ID,
+	}}
+	req = req.WithContext(contextWithIdentity(req.Context(), agentIdent))
+
+	rr := httptest.NewRecorder()
+	srv.handleAgentOutboundMessage(rr, req, agent.ID)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for unknown recipient, got %d: %s", rr.Code, rr.Body.String())
 	}
 }

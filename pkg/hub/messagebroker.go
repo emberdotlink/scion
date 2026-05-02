@@ -46,6 +46,7 @@ type MessageBrokerProxy struct {
 	mu                  sync.Mutex
 	subscriptions       map[string][]broker.Subscription // groveID -> active subscriptions
 	pluginSubscriptions map[string]broker.Subscription   // pattern -> plugin-initiated subscription
+	subscribedTopics    map[string]bool                  // dedup guard for grove-level subscriptions
 	stopCh              chan struct{}
 	stopOnce            sync.Once
 	wg                  sync.WaitGroup
@@ -67,6 +68,7 @@ func NewMessageBrokerProxy(
 		log:                 log,
 		subscriptions:       make(map[string][]broker.Subscription),
 		pluginSubscriptions: make(map[string]broker.Subscription),
+		subscribedTopics:    make(map[string]bool),
 		stopCh:              make(chan struct{}),
 	}
 }
@@ -101,7 +103,40 @@ func (p *MessageBrokerProxy) Start() {
 	// Subscribe to global broadcasts
 	p.subscribeGlobalBroadcast()
 
+	// Bootstrap subscriptions for groves that already have running agents.
+	// Without this, messages published before the next agent.created lifecycle
+	// event would be silently dropped by the broker.
+	p.bootstrapExistingGroves()
+
 	p.log.Info("Message broker proxy started")
+}
+
+// bootstrapExistingGroves sets up broker subscriptions for all groves that
+// already have running agents at startup time.
+func (p *MessageBrokerProxy) bootstrapExistingGroves() {
+	ctx := context.Background()
+	result, err := p.store.ListAgents(ctx, store.AgentFilter{
+		Phase: "running",
+	}, store.ListOptions{})
+	if err != nil {
+		p.log.Error("Failed to list running agents for bootstrap", "error", err)
+		return
+	}
+
+	groves := make(map[string]bool)
+	for _, agent := range result.Items {
+		if !groves[agent.GroveID] {
+			groves[agent.GroveID] = true
+			if err := p.EnsureGroveSubscriptions(ctx, agent.GroveID); err != nil {
+				p.log.Error("Failed to bootstrap grove subscriptions",
+					"grove_id", agent.GroveID, "error", err)
+			}
+		}
+	}
+
+	if len(groves) > 0 {
+		p.log.Info("Bootstrapped broker subscriptions for existing groves", "count", len(groves))
+	}
 }
 
 // Stop signals the proxy to shut down and waits for goroutines to finish.
@@ -122,6 +157,7 @@ func (p *MessageBrokerProxy) Stop() {
 			sub.Unsubscribe()
 			delete(p.pluginSubscriptions, pattern)
 		}
+		p.subscribedTopics = make(map[string]bool)
 		p.mu.Unlock()
 
 		p.log.Info("Message broker proxy stopped")
@@ -263,6 +299,14 @@ func (p *MessageBrokerProxy) handleLifecycleEvent(evt Event) {
 func (p *MessageBrokerProxy) subscribeAgent(groveID, agentSlug string) {
 	topic := broker.TopicAgentMessages(groveID, agentSlug)
 
+	p.mu.Lock()
+	if p.subscribedTopics[topic] {
+		p.mu.Unlock()
+		return
+	}
+	p.subscribedTopics[topic] = true
+	p.mu.Unlock()
+
 	sub, err := p.broker.Subscribe(topic, func(ctx context.Context, t string, msg *messages.StructuredMessage) {
 		p.deliverToAgent(ctx, groveID, agentSlug, msg)
 	})
@@ -283,6 +327,14 @@ func (p *MessageBrokerProxy) subscribeAgent(groveID, agentSlug string) {
 // that fans out to all running agents in the grove.
 func (p *MessageBrokerProxy) subscribeGroveBroadcast(groveID string) {
 	topic := broker.TopicGroveBroadcast(groveID)
+
+	p.mu.Lock()
+	if p.subscribedTopics[topic] {
+		p.mu.Unlock()
+		return
+	}
+	p.subscribedTopics[topic] = true
+	p.mu.Unlock()
 
 	sub, err := p.broker.Subscribe(topic, func(ctx context.Context, t string, msg *messages.StructuredMessage) {
 		p.fanOutToGrove(ctx, groveID, msg)
@@ -306,6 +358,14 @@ func (p *MessageBrokerProxy) subscribeGroveBroadcast(groveID string) {
 // The subscription uses a wildcard to cover all users in the grove.
 func (p *MessageBrokerProxy) subscribeGroveUserMessages(groveID string) {
 	topic := broker.TopicAllUserMessages(groveID)
+
+	p.mu.Lock()
+	if p.subscribedTopics[topic] {
+		p.mu.Unlock()
+		return
+	}
+	p.subscribedTopics[topic] = true
+	p.mu.Unlock()
 
 	sub, err := p.broker.Subscribe(topic, func(ctx context.Context, t string, msg *messages.StructuredMessage) {
 		p.deliverToUser(ctx, groveID, t, msg)
