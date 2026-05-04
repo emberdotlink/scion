@@ -275,13 +275,10 @@ func TestApplyModeRestrictions_Agent(t *testing.T) {
 
 	// These commands should be present in agent mode
 	expected := []string{
-		"completion",
-		"config", "config.dir", "config.get", "config.list", "config.schema",
-		"create", "delete", "doctor",
+		"create", "delete",
 		"help",
-		"hub", "hub.notifications", "hub.status",
 		"list", "logs", "look",
-		"message", "messages", "messages.read",
+		"message",
 		"notifications",
 		"notifications.ack", "notifications.subscribe", "notifications.subscriptions",
 		"notifications.unsubscribe", "notifications.update",
@@ -294,31 +291,25 @@ func TestApplyModeRestrictions_Agent(t *testing.T) {
 
 	// These should be removed
 	absent := []string{
-		"attach", "broker", "cdw", "clean", "grove", "harness-config",
-		"init", "restore", "server", "sync", "template", "templates",
+		"attach", "broker", "cdw", "clean", "completion", "config", "doctor",
+		"grove", "harness-config", "hub",
+		"init", "messages", "restore", "server", "sync", "template", "templates",
 	}
 	for _, cmd := range absent {
 		assert.NotContains(t, remaining, cmd, "agent mode should remove %s", cmd)
 	}
 }
 
-func TestApplyModeRestrictions_AgentConfigSubcommands(t *testing.T) {
+func TestApplyModeRestrictions_AgentConfigRemoved(t *testing.T) {
 	t.Setenv("SCION_CLI_MODE", "agent")
 	root := buildTestTree()
 	applyModeRestrictions(root)
 	remaining := collectCommandNames(root)
 
-	// config parent should exist with only allowed subcommands
-	assert.Contains(t, remaining, "config")
-	assert.Contains(t, remaining, "config.list")
-	assert.Contains(t, remaining, "config.get")
-	assert.Contains(t, remaining, "config.dir")
-	assert.Contains(t, remaining, "config.schema")
-
-	// config.set, config.validate, config.migrate should be absent
+	assert.NotContains(t, remaining, "config")
+	assert.NotContains(t, remaining, "config.list")
+	assert.NotContains(t, remaining, "config.get")
 	assert.NotContains(t, remaining, "config.set")
-	assert.NotContains(t, remaining, "config.validate")
-	assert.NotContains(t, remaining, "config.migrate")
 }
 
 func TestApplyModeRestrictions_AgentScheduleSubcommands(t *testing.T) {
@@ -340,7 +331,7 @@ func TestApplyModeRestrictions_AgentScheduleSubcommands(t *testing.T) {
 	assert.NotContains(t, remaining, "schedule.delete")
 }
 
-func TestApplyModeRestrictions_BuiltinsAlwaysKept(t *testing.T) {
+func TestApplyModeRestrictions_HelpAlwaysKept(t *testing.T) {
 	for _, mode := range []string{"human", "assistant", "agent"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("SCION_CLI_MODE", mode)
@@ -348,9 +339,22 @@ func TestApplyModeRestrictions_BuiltinsAlwaysKept(t *testing.T) {
 			applyModeRestrictions(root)
 			remaining := collectCommandNames(root)
 			assert.Contains(t, remaining, "help")
-			assert.Contains(t, remaining, "completion")
 		})
 	}
+}
+
+func TestApplyModeRestrictions_CompletionRemovedInAgentMode(t *testing.T) {
+	t.Setenv("SCION_CLI_MODE", "agent")
+	root := buildTestTree()
+	applyModeRestrictions(root)
+	remaining := collectCommandNames(root)
+	assert.NotContains(t, remaining, "completion")
+
+	t.Setenv("SCION_CLI_MODE", "assistant")
+	root = buildTestTree()
+	applyModeRestrictions(root)
+	remaining = collectCommandNames(root)
+	assert.Contains(t, remaining, "completion")
 }
 
 func TestApplyModeRestrictions_TemplateAlias(t *testing.T) {
@@ -365,8 +369,7 @@ func TestApplyModeRestrictions_TemplateAlias(t *testing.T) {
 
 func TestRemoveCommands_DoesNotPanicOnEmptyTree(t *testing.T) {
 	root := &cobra.Command{Use: "root"}
-	removed := removeCommands(root, "", func(path string) bool { return true })
-	assert.Equal(t, 0, removed)
+	removeCommands(root, "", func(path string) bool { return true })
 }
 
 func TestAssistantDeniedList(t *testing.T) {
@@ -392,10 +395,8 @@ func TestAssistantDeniedList(t *testing.T) {
 func TestAgentAllowedList(t *testing.T) {
 	expectedAllowed := []string{
 		"create", "delete", "list", "start", "stop", "look", "logs",
-		"message", "messages", "messages.read",
-		"resume", "doctor", "version",
-		"config", "config.list", "config.get", "config.dir", "config.schema",
-		"hub", "hub.status", "hub.notifications",
+		"message",
+		"resume", "version",
 		"notifications",
 		"schedule", "schedule.list", "schedule.get", "schedule.cancel", "schedule.history",
 		"shared-dir", "shared-dir.list", "shared-dir.info",
@@ -406,12 +407,15 @@ func TestAgentAllowedList(t *testing.T) {
 
 	notAllowed := []string{
 		"attach", "restore", "sync", "clean", "cdw", "init",
+		"completion", "config", "doctor", "hub", "messages",
 		"server", "broker", "grove", "templates", "template",
 		"harness-config",
 		"config.set", "config.validate", "config.migrate",
+		"config.list", "config.get", "config.dir", "config.schema",
 		"hub.enable", "hub.disable", "hub.link", "hub.unlink",
 		"hub.auth", "hub.token", "hub.groves", "hub.brokers",
-		"hub.env", "hub.secret",
+		"hub.env", "hub.secret", "hub.status", "hub.notifications",
+		"messages.read",
 		"schedule.create", "schedule.create-recurring", "schedule.delete",
 		"schedule.pause", "schedule.resume",
 		"shared-dir.create", "shared-dir.remove",

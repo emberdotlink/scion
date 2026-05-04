@@ -46,27 +46,15 @@ Used inside agent containers. Agents can orchestrate sibling agents within their
 |---------|--------|
 | `server` (all subcommands) | Infrastructure administration — not relevant inside a container |
 | `broker` (all subcommands) | Runtime broker administration — not relevant inside a container |
-| `hub auth` (all) | Already removed in `assistant` |
-| `hub token` (all) | Already removed in `assistant` |
-| `hub enable/disable` | Hub configuration — infrastructure concern |
-| `hub link/unlink` | Grove linking — infrastructure concern |
-| `hub groves` (all subcommands) | Grove administration across the Hub — infrastructure concern |
-| `hub brokers` (all subcommands) | Broker administration — infrastructure concern |
-| `hub env` (all subcommands) | Hub-level environment variable management — infrastructure concern |
-| `hub secret` (all subcommands) | Hub-level secret management — infrastructure concern |
+| `hub` (all subcommands) | Hub interaction — agents communicate via the messaging and notification systems, not direct Hub commands |
 | `init` | Grove initialization — infrastructure concern |
 | `grove` (all subcommands) | Grove administration — infrastructure concern |
-
 | `templates` (all subcommands) | Template management — managed by the operator |
 | `harness-config` (all subcommands) | Harness configuration — managed by the operator |
-
-<!-- agents should be able to list these - they are criticial for understanding what options they have when starting agents -->
-
-| `config set` | Configuration mutation — managed by the operator |
-| `config validate` | Not relevant inside a running container |
-| `config migrate` | Already removed in `assistant` |
-| `config cd-config` | Already removed in `assistant` |
-| `config cd-grove` | Already removed in `assistant` |
+| `config` (all subcommands) | Configuration inspection/mutation — managed by the operator |
+| `doctor` | Diagnostic tool — not relevant inside a running container |
+| `messages` (all subcommands) | Agents receive messages directly; inbox polling is unnecessary |
+| `completion` | Shell completion generation — not useful inside a container |
 | `shared-dir create/remove` | Shared directory lifecycle — managed by the operator |
 | `sync` | Workspace syncing — managed by the operator |
 | `clean` | Already removed in `assistant` |
@@ -166,9 +154,9 @@ Agents can stop themselves and other agents via `scion stop`. However, `scion st
 - Exclude the calling agent from `--all` in agent mode (requiring explicit `scion stop --self` for self-termination), or
 - Print a warning and require `--yes` confirmation when `--all` is used from within an agent container
 
-### 5.5. Debug Logging
+### 5.5. No Debug Logging
 
-When `SCION_DEBUG=1` is set, the mode system logs which mode was detected and how many commands were removed. This aids debugging for operators but does not leak into normal agent output.
+The mode system intentionally does **not** produce any debug or diagnostic output, even when `SCION_DEBUG=1` is set. Any log message referencing the mode, the environment variable name, or the number of removed commands could reveal the restriction mechanism to an agent inspecting its own output.
 
 ## 6. Affected Existing Behavior
 
@@ -192,25 +180,25 @@ The existing `TestCheckAgentContainerContext` tests should be extended to cover 
 | `broker` (all) | Y | Y | - |
 | `cdw` | Y | - | - |
 | `clean` | Y | - | - |
-| `config list` | Y | Y | Y |
+| `config list` | Y | Y | - |
 | `config set` | Y | Y | - |
-| `config get` | Y | Y | Y |
+| `config get` | Y | Y | - |
 | `config validate` | Y | Y | - |
 | `config migrate` | Y | - | - |
-| `config dir` | Y | Y | Y |
+| `config dir` | Y | Y | - |
 | `config cd-config` | Y | - | - |
 | `config cd-grove` | Y | - | - |
-| `config schema` | Y | Y | Y |
+| `config schema` | Y | Y | - |
 | `create` | Y | Y | Y |
 | `delete` | Y | Y | Y |
-| `doctor` | Y | Y | Y |
+| `doctor` | Y | Y | - |
 | `grove init` | Y | Y | - |
 | `grove list` | Y | Y | - |
 | `grove prune` | Y | Y | - |
 | `grove reconnect` | Y | - | - |
 | `grove service-accounts` (all) | Y | Y | - |
 | `harness-config` (all) | Y | Y | - |
-| `hub status` | Y | Y | Y |
+| `hub status` | Y | Y | - |
 | `hub groves` (all) | Y | Y | - |
 | `hub brokers` (all) | Y | Y | - |
 | `hub enable` | Y | Y | - |
@@ -221,14 +209,14 @@ The existing `TestCheckAgentContainerContext` tests should be extended to cover 
 | `hub token` (all) | Y | - | - |
 | `hub secret` (all) | Y | Y | - |
 | `hub env` (all) | Y | Y | - |
-| `hub notifications` | Y | Y | Y |
+| `hub notifications` | Y | Y | - |
 | `init` | Y | Y | - |
 | `list` | Y | Y | Y |
 | `logs` | Y | Y | Y |
 | `look` | Y | Y | Y |
 | `message` | Y | Y | Y |
-| `messages` | Y | Y | Y |
-| `messages read` | Y | Y | Y |
+| `messages` | Y | Y | - |
+| `messages read` | Y | Y | - |
 | `notifications` (all) | Y | Y | Y |
 | `restore` | Y | Y | - |
 | `resume` | Y | Y | Y |
@@ -252,7 +240,7 @@ The existing `TestCheckAgentContainerContext` tests should be extended to cover 
 | `templates` (all) | Y | Y | - |
 | `version` | Y | Y | Y |
 | `help` | Y | Y | Y |
-| `completion` | Y | Y | Y |
+| `completion` | Y | Y | - |
 
 ## 8. Open Questions
 

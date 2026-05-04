@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/config"
-	"github.com/GoogleCloudPlatform/scion/pkg/util"
 )
 
 type CLIMode string
@@ -36,26 +35,15 @@ var assistantDenied = map[string]bool{
 var agentAllowed = map[string]bool{
 	"create":                      true,
 	"delete":                      true,
-	"doctor":                      true,
 	"list":                        true,
 	"logs":                        true,
 	"look":                        true,
 	"message":                     true,
-	"messages":                    true,
-	"messages.read":               true,
 	"resume":                      true,
 	"start":                       true,
 	"stop":                        true,
 	"version":                     true,
 	"whoami":                      true,
-	"config":                      true,
-	"config.list":                 true,
-	"config.get":                  true,
-	"config.dir":                  true,
-	"config.schema":               true,
-	"hub":                         true,
-	"hub.status":                  true,
-	"hub.notifications":           true,
 	"notifications":               true,
 	"notifications.ack":           true,
 	"notifications.subscribe":     true,
@@ -107,36 +95,30 @@ func applyModeRestrictions(root *cobra.Command) {
 		return
 	}
 
-	removed := 0
 	switch mode {
 	case ModeAssistant:
-		removed = applyAssistantMode(root)
+		applyAssistantMode(root)
 	case ModeAgent:
-		removed = applyAgentMode(root)
+		applyAgentMode(root)
 	}
-
-	util.Debugf("CLI mode %q: removed %d commands from command tree", mode, removed)
 }
 
-// applyAssistantMode removes denied commands from the tree.
-func applyAssistantMode(root *cobra.Command) int {
-	return removeCommands(root, "", func(path string) bool {
+func applyAssistantMode(root *cobra.Command) {
+	removeCommands(root, "", func(path string) bool {
 		return assistantDenied[path]
 	})
 }
 
-// applyAgentMode keeps only commands in the agent allow-list.
-func applyAgentMode(root *cobra.Command) int {
-	return removeCommands(root, "", func(path string) bool {
+func applyAgentMode(root *cobra.Command) {
+	removeCommands(root, "", func(path string) bool {
 		return !agentAllowed[path]
 	})
 }
 
 // removeCommands walks the command tree and removes commands where shouldRemove
 // returns true. It processes children recursively before deciding whether to
-// remove a parent. Returns the count of removed commands.
-func removeCommands(parent *cobra.Command, prefix string, shouldRemove func(string) bool) int {
-	removed := 0
+// remove a parent.
+func removeCommands(parent *cobra.Command, prefix string, shouldRemove func(string) bool) {
 	for _, child := range parent.Commands() {
 		name := child.Name()
 		path := name
@@ -144,20 +126,16 @@ func removeCommands(parent *cobra.Command, prefix string, shouldRemove func(stri
 			path = prefix + "." + name
 		}
 
-		// Always keep built-in Cobra commands.
-		if name == "help" || name == "completion" {
+		if name == "help" {
 			continue
 		}
 
-		// Recurse into subcommands first.
 		if child.HasSubCommands() {
-			removed += removeCommands(child, path, shouldRemove)
+			removeCommands(child, path, shouldRemove)
 		}
 
 		if shouldRemove(path) {
 			parent.RemoveCommand(child)
-			removed++
 		}
 	}
-	return removed
 }
