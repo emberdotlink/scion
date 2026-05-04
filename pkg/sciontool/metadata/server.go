@@ -61,6 +61,11 @@ type Config struct {
 const (
 	modeBlock  = "block"
 	modeAssign = "assign"
+
+	maxRestarts         = 3
+	healthCheckInterval = 30 * time.Second
+	healthCheckTimeout  = 2 * time.Second
+	healthFailThreshold = 3
 )
 
 // ConfigFromEnv reads metadata server configuration from environment variables.
@@ -121,6 +126,10 @@ type Server struct {
 	cancel             context.CancelFunc
 	iptablesConfigured bool        // whether iptables redirect was successfully set up
 	metadataBlocked    blockMethod // which blocking method was applied (block mode only)
+
+	healthMu     sync.Mutex
+	restartCount int
+	abandoned    bool
 }
 
 // authToken returns the current auth token, preferring the dynamic TokenFunc
@@ -154,19 +163,22 @@ func New(cfg Config) *Server {
 	}
 }
 
+func (s *Server) buildMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRoot)
+	mux.HandleFunc("/computeMetadata/v1/", s.handleMetadata)
+	return s.requireMetadataFlavor(mux)
+}
+
 // Start starts the metadata server in the background. Returns immediately.
 func (s *Server) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.handleRoot)
-	mux.HandleFunc("/computeMetadata/v1/", s.handleMetadata)
-
 	addr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
 	s.srv = &http.Server{
 		Addr:    addr,
-		Handler: s.requireMetadataFlavor(mux),
+		Handler: s.buildMux(),
 	}
 
 	ln, err := net.Listen("tcp", addr)
@@ -200,6 +212,8 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.config.Mode == modeAssign {
 		go s.proactiveRefreshLoop(ctx)
 	}
+
+	go s.healthCheckLoop(ctx)
 
 	go func() {
 		<-ctx.Done()
@@ -265,6 +279,124 @@ func (s *Server) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+}
+
+func (s *Server) probeHealth() bool {
+	client := &http.Client{Timeout: healthCheckTimeout}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", s.config.Port))
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+func (s *Server) isAbandoned() bool {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	return s.abandoned
+}
+
+func (s *Server) healthCheckLoop(ctx context.Context) {
+	select {
+	case <-time.After(5 * time.Second):
+	case <-ctx.Done():
+		return
+	}
+
+	ticker := time.NewTicker(healthCheckInterval)
+	defer ticker.Stop()
+
+	consecutiveFailures := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if s.isAbandoned() {
+				return
+			}
+			if s.probeHealth() {
+				consecutiveFailures = 0
+				continue
+			}
+			consecutiveFailures++
+			log.Error("Metadata server health check failed (%d/%d)",
+				consecutiveFailures, healthFailThreshold)
+
+			if consecutiveFailures >= healthFailThreshold {
+				log.Error("Metadata server unresponsive after %d probes, attempting restart",
+					consecutiveFailures)
+				if err := s.restartHTTP(ctx); err != nil {
+					log.Error("Metadata server restart failed: %v", err)
+				} else {
+					log.Info("Metadata server restarted successfully")
+				}
+				consecutiveFailures = 0
+			}
+		}
+	}
+}
+
+func (s *Server) restartHTTP(ctx context.Context) error {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+
+	if s.abandoned {
+		return fmt.Errorf("metadata server abandoned after %d restart failures", maxRestarts)
+	}
+
+	s.restartCount++
+	if s.restartCount > maxRestarts {
+		s.abandoned = true
+		log.Error("Metadata server restart limit reached (%d), abandoning", maxRestarts)
+		return fmt.Errorf("restart limit reached")
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	s.srv.Shutdown(shutdownCtx)
+	shutdownCancel()
+
+	addr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("restart listen: %w", err)
+	}
+
+	s.srv = &http.Server{
+		Addr:    addr,
+		Handler: s.buildMux(),
+	}
+
+	go func() {
+		log.Info("Metadata server restarted on %s (attempt %d/%d)",
+			addr, s.restartCount, maxRestarts)
+		if err := s.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Error("Metadata server error after restart: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	if !s.probeHealth() {
+		return fmt.Errorf("restarted server failed immediate health check")
+	}
+
+	restartAttempt := s.restartCount
+	go func() {
+		select {
+		case <-time.After(60 * time.Second):
+			s.healthMu.Lock()
+			if s.restartCount == restartAttempt {
+				s.restartCount = 0
+				log.Debug("Metadata server restart counter reset (stable for 60s)")
+			}
+			s.healthMu.Unlock()
+		case <-ctx.Done():
+		}
+	}()
+
+	return nil
 }
 
 func (s *Server) requireMetadataFlavor(next http.Handler) http.Handler {

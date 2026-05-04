@@ -600,3 +600,119 @@ func TestMetadataServer_AssignMode_SingleflightToken(t *testing.T) {
 		t.Fatalf("expected 1 Hub request (singleflight), got %d", count)
 	}
 }
+
+func TestMetadataServer_ProbeHealth(t *testing.T) {
+	port := freePort(t)
+	srv := New(Config{
+		Mode:      "block",
+		Port:      port,
+		ProjectID: "test-project",
+	})
+
+	// Before start, probe should fail
+	if srv.probeHealth() {
+		t.Fatal("expected probeHealth to fail before server start")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	time.Sleep(50 * time.Millisecond)
+
+	// After start, probe should succeed
+	if !srv.probeHealth() {
+		t.Fatal("expected probeHealth to succeed after server start")
+	}
+}
+
+func TestMetadataServer_RestartHTTP(t *testing.T) {
+	port := freePort(t)
+	srv := New(Config{
+		Mode:      "block",
+		Port:      port,
+		ProjectID: "test-project",
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	time.Sleep(50 * time.Millisecond)
+
+	if !srv.probeHealth() {
+		t.Fatal("expected healthy before shutdown")
+	}
+
+	// Forcibly close the HTTP server to simulate a crash
+	srv.srv.Close()
+	time.Sleep(50 * time.Millisecond)
+
+	if srv.probeHealth() {
+		t.Fatal("expected probe to fail after server close")
+	}
+
+	// Restart should bring it back
+	if err := srv.restartHTTP(ctx); err != nil {
+		t.Fatalf("restartHTTP failed: %v", err)
+	}
+
+	if !srv.probeHealth() {
+		t.Fatal("expected healthy after restart")
+	}
+
+	// Verify it actually serves requests
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if err != nil {
+		t.Fatalf("GET after restart: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after restart, got %d", resp.StatusCode)
+	}
+}
+
+func TestMetadataServer_RestartLimit(t *testing.T) {
+	port := freePort(t)
+	srv := New(Config{
+		Mode:      "block",
+		Port:      port,
+		ProjectID: "test-project",
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	time.Sleep(50 * time.Millisecond)
+
+	// Exhaust restart attempts
+	for i := 0; i < maxRestarts; i++ {
+		srv.srv.Close()
+		time.Sleep(50 * time.Millisecond)
+		if err := srv.restartHTTP(ctx); err != nil {
+			t.Fatalf("restart %d should succeed: %v", i+1, err)
+		}
+	}
+
+	// Next restart should fail (limit reached)
+	srv.srv.Close()
+	time.Sleep(50 * time.Millisecond)
+	err := srv.restartHTTP(ctx)
+	if err == nil {
+		t.Fatal("expected error after exceeding restart limit")
+	}
+
+	if !srv.isAbandoned() {
+		t.Fatal("expected server to be marked abandoned")
+	}
+}
