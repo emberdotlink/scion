@@ -84,7 +84,7 @@ return an error instead of blocking.`,
 
 		requiresGrove := true
 		switch cmdName {
-		case "help", "version", "completion", "doctor":
+		case "help", "version", "completion", "doctor", "whoami":
 			requiresGrove = false
 		case "init":
 			// Both top-level init and grove init don't require existing grove
@@ -352,7 +352,7 @@ func checkAgentContainerContext(cmd *cobra.Command) error {
 
 	cmdName := cmd.Name()
 	switch cmdName {
-	case "help", "version", "completion", "doctor", "config", "scion":
+	case "help", "version", "completion", "doctor", "config", "whoami", "scion":
 		return nil
 	}
 	if cmd.Parent() != nil && cmd.Parent().Name() == "config" {
