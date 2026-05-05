@@ -1443,21 +1443,24 @@ func runHubGroveCreate(cmd *cobra.Command, args []string) error {
 
 	normalized := util.NormalizeGitRemote(gitURL)
 
-	// Derive slug
+	// Display name
 	org, repo := util.ExtractOrgRepo(gitURL)
+	displayName := hubGroveCreateName
+	if displayName == "" {
+		displayName = repo
+	}
+
+	// Derive slug: prefer explicit --slug, then --name, then org-repo
 	slug := hubGroveCreateSlug
 	if slug == "" {
-		slugBase := org + "-" + repo
+		slugBase := displayName
+		if hubGroveCreateName == "" {
+			slugBase = org + "-" + repo
+		}
 		if hubGroveCreateBranch != "" {
 			slugBase += "-" + hubGroveCreateBranch
 		}
 		slug = api.Slugify(slugBase)
-	}
-
-	// Display name
-	displayName := hubGroveCreateName
-	if displayName == "" {
-		displayName = repo
 	}
 
 	// Detect default branch
@@ -1518,7 +1521,7 @@ func runHubGroveCreate(cmd *cobra.Command, args []string) error {
 			for _, g := range existing.Groves {
 				fmt.Printf("  - %s (slug: %s, ID: %s)\n", g.Name, g.Slug, g.ID)
 			}
-			fmt.Printf("\nA new grove will be created as '%s'.\n", slug)
+			fmt.Printf("\nA new grove will be created as '%s' (slug: %s).\n", displayName, slug)
 
 			if !autoConfirm {
 				if nonInteractive {
