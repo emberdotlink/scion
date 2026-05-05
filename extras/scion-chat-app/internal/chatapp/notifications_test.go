@@ -172,10 +172,12 @@ func TestHandleUserMessage_NoSubscriptionRequired(t *testing.T) {
 	}
 }
 
-// TestHandleUserMessage_FiltersNonInstruction verifies that state-change and
-// input-needed messages on the user topic are NOT relayed to chat. Only
-// explicit instruction messages (from scion message commands) should appear.
-func TestHandleUserMessage_FiltersNonInstruction(t *testing.T) {
+// TestHandleUserMessage_RoutesNonInstructionToNotification verifies that
+// state-change and input-needed messages on the user topic are rendered as
+// notification cards (via handleAgentNotification) rather than as direct
+// agent response cards. Only explicit instruction messages should use the
+// direct-message card format.
+func TestHandleUserMessage_RoutesNonInstructionToNotification(t *testing.T) {
 	store := newTestStore(t)
 
 	if err := store.SetUserMapping(&state.UserMapping{
@@ -214,7 +216,7 @@ func TestHandleUserMessage_FiltersNonInstruction(t *testing.T) {
 			msg := &messages.StructuredMessage{
 				Sender:      "agent:simon",
 				RecipientID: "hub-user-1",
-				Msg:         "agent completed its task",
+				Msg:         "agent COMPLETED its task",
 				Type:        tc.msgType,
 			}
 
@@ -224,8 +226,21 @@ func TestHandleUserMessage_FiltersNonInstruction(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if len(fm.messages) != 0 {
-				t.Errorf("expected no messages for type %q, got %d", tc.msgType, len(fm.messages))
+			if len(fm.messages) == 0 {
+				t.Fatal("expected a notification card to be sent")
+			}
+
+			got := fm.messages[0]
+			if got.SpaceID != "spaces/AAQAx" {
+				t.Errorf("message sent to wrong space: got %q, want %q", got.SpaceID, "spaces/AAQAx")
+			}
+			if got.Card == nil {
+				t.Fatal("expected a card in the message")
+			}
+			// Notification cards include a subtitle with the activity status,
+			// unlike direct-message cards which only have the agent name.
+			if got.Card.Header.Subtitle == "" {
+				t.Error("expected notification card to have a subtitle with activity status")
 			}
 		})
 	}

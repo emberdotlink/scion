@@ -128,12 +128,12 @@ func (n *NotificationRelay) handleUserMessage(ctx context.Context, groveID strin
 	}
 
 	if msg.Type != messages.TypeInstruction {
-		n.log.Debug("skipping non-instruction user message",
+		n.log.Debug("routing non-instruction user message to notification path",
 			"type", msg.Type,
 			"sender", msg.Sender,
 			"recipient_id", msg.RecipientID,
 		)
-		return nil
+		return n.handleAgentNotification(ctx, groveID, msg)
 	}
 
 	// Look up the chat platform user for this Hub user
