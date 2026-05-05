@@ -127,6 +127,15 @@ func (n *NotificationRelay) handleUserMessage(ctx context.Context, groveID strin
 		return nil
 	}
 
+	if msg.Type != messages.TypeInstruction {
+		n.log.Debug("skipping non-instruction user message",
+			"type", msg.Type,
+			"sender", msg.Sender,
+			"recipient_id", msg.RecipientID,
+		)
+		return nil
+	}
+
 	// Look up the chat platform user for this Hub user
 	mapping, err := n.store.GetUserMappingByHubID(msg.RecipientID)
 	if err != nil {

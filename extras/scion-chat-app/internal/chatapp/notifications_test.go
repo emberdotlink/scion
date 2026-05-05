@@ -171,3 +171,62 @@ func TestHandleUserMessage_NoSubscriptionRequired(t *testing.T) {
 		t.Errorf("expected no card actions, got %d", len(got.Card.Actions))
 	}
 }
+
+// TestHandleUserMessage_FiltersNonInstruction verifies that state-change and
+// input-needed messages on the user topic are NOT relayed to chat. Only
+// explicit instruction messages (from scion message commands) should appear.
+func TestHandleUserMessage_FiltersNonInstruction(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.SetUserMapping(&state.UserMapping{
+		PlatformUserID: "users/12345",
+		Platform:       "googlechat",
+		HubUserID:      "hub-user-1",
+		HubUserEmail:   "test@example.com",
+		RegisteredBy:   "auto",
+	}); err != nil {
+		t.Fatalf("setting user mapping: %v", err)
+	}
+
+	if err := store.SetSpaceLink(&state.SpaceLink{
+		SpaceID:   "spaces/AAQAx",
+		Platform:  "googlechat",
+		GroveID:   "grove-abc",
+		GroveSlug: "my-grove",
+		LinkedBy:  "test",
+	}); err != nil {
+		t.Fatalf("setting space link: %v", err)
+	}
+
+	fm := &fakeMessenger{}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	relay := NewNotificationRelay(store, fm, log)
+
+	for _, tc := range []struct {
+		name    string
+		msgType string
+	}{
+		{"state-change", messages.TypeStateChange},
+		{"input-needed", messages.TypeInputNeeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fm.messages = nil
+			msg := &messages.StructuredMessage{
+				Sender:      "agent:simon",
+				RecipientID: "hub-user-1",
+				Msg:         "agent completed its task",
+				Type:        tc.msgType,
+			}
+
+			err := relay.HandleBrokerMessage(context.Background(),
+				"scion.grove.grove-abc.user.hub-user-1.messages", msg)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(fm.messages) != 0 {
+				t.Errorf("expected no messages for type %q, got %d", tc.msgType, len(fm.messages))
+			}
+		})
+	}
+}
