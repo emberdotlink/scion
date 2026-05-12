@@ -425,6 +425,7 @@ type ScionConfig struct {
 	AuthSelectedType string            `json:"auth_selectedType,omitempty" yaml:"auth_selectedType,omitempty"`
 	Resources        *ResourceSpec     `json:"resources,omitempty" yaml:"resources,omitempty"`
 	Image            string            `json:"image,omitempty" yaml:"image,omitempty"`
+	NetworkMode      string            `json:"network_mode,omitempty" yaml:"network_mode,omitempty"`
 	Services         []ServiceSpec     `json:"services,omitempty" yaml:"services,omitempty"`
 	// MCPServers is the universal MCP server map. Keys are server names; values
 	// are the transport-agnostic config translated by each harness's

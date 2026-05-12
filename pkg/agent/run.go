@@ -667,6 +667,11 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	// can reach the host's loopback interface directly. This also rewrites any
 	// bridge hostnames back to localhost in opts.Env.
 	dockerNetworkMode := runtime.ResolveDockerNetworking(m.Runtime.Name(), opts.Env)
+	// Template override: ScionConfig.NetworkMode takes precedence over auto-derived
+	// (e.g. `--network container:<sibling>` for shared-netns scenarios). Per emberlink ADR 140 §8.
+	if finalScionCfg != nil && finalScionCfg.NetworkMode != "" {
+		dockerNetworkMode = finalScionCfg.NetworkMode
+	}
 	if dockerNetworkMode != "" {
 		opts.Env["SCION_NETWORK_MODE"] = dockerNetworkMode
 	}
