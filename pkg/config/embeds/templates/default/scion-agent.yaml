@@ -17,3 +17,28 @@ schema_version: "1"
 description: "Default scion agent template"
 agent_instructions: agents.md
 system_prompt: system-prompt.md
+
+# ember-exec sidecar — receives SpawnDirective frames from emberd over a
+# Unix domain socket and brokers privileged exec on the agent's behalf.
+# Per ADR 140 §8 (two-uid CRIT-B isolation): the sidecar runs as the
+# ember-exec system user, NOT the agent uid (scion). The agent process
+# can only talk to it via the UDS at /run/ember/exec.sock; it cannot
+# ptrace it, share memory with it, or otherwise compromise it.
+#
+# This entry is added to the default template so every cohort-A
+# container starts ember-exec before the harness drops to the agent uid.
+# The scion-services.yaml loader in `sciontool init` reads this block
+# and starts services *before* the supervisor drops privileges to the
+# agent uid — see cmd/sciontool/commands/init.go::Init.
+services:
+  - name: ember-exec
+    command:
+      - /usr/local/bin/ember-exec
+      - --socket
+      - /run/ember/exec.sock
+    user: ember-exec
+    restart: always
+    ready_check:
+      type: delay
+      target: "1s"
+      timeout: "5s"

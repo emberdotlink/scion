@@ -81,6 +81,19 @@ RUN useradd -m -s /bin/zsh -u 1000 scion && \
     echo "scion ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/scion && \
     chmod 0440 /etc/sudoers.d/scion
 
+# Create ember-exec system user (ADR 140 §8 / CRIT-B two-uid isolation).
+# The ember-exec sidecar runs the privileged exec process that receives
+# SpawnDirective frames from emberd. Its uid is intentionally distinct
+# from the agent uid (scion=1000) so a compromised agent cannot ptrace,
+# share-memory-with, or otherwise interfere with the exec process. No
+# sudo, no shell login — this account exists only to own the exec
+# binary and its UDS socket directory.
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin \
+        --uid 1001 --user-group ember-exec && \
+    mkdir -p /run/ember && \
+    chown ember-exec:ember-exec /run/ember && \
+    chmod 0750 /run/ember
+
 # Precreate shared Scion home state so mounted file secrets and runtime
 # config writes do not force root-owned parent directories at startup.
 RUN mkdir -p /home/scion/.scion && \
