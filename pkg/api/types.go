@@ -432,6 +432,16 @@ type ScionConfig struct {
 	Image            string            `json:"image,omitempty" yaml:"image,omitempty"`
 	NetworkMode      string            `json:"network_mode,omitempty" yaml:"network_mode,omitempty"`
 	Services         []ServiceSpec     `json:"services,omitempty" yaml:"services,omitempty"`
+	// Sysctls is a raw passthrough to Docker's `--sysctl key=value`. Per ADR
+	// 140 §8 — needed for the ember-exec two-uid model where `/proc` must be
+	// mounted with hidepid=2 so the agent uid cannot enumerate ember-exec
+	// processes. May need a typed allowlist before upstream merge; ship raw
+	// on the fork for now.
+	Sysctls []string `json:"sysctls,omitempty" yaml:"sysctls,omitempty"`
+	// SecurityOpts is a raw passthrough to Docker's `--security-opt value`.
+	// Per ADR 140 §8 — companion to Sysctls. Same upstream caveat. Field
+	// reference for target_state_grep callers: ScionConfig.SecurityOpts.
+	SecurityOpts []string `json:"security_opts,omitempty" yaml:"security_opts,omitempty"`
 	// MCPServers is the universal MCP server map. Keys are server names; values
 	// are the transport-agnostic config translated by each harness's
 	// container-side provisioner into native format.

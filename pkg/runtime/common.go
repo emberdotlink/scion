@@ -174,6 +174,16 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		addArg("--network", config.NetworkMode)
 	}
 
+	// Sysctls and SecurityOpts: raw passthrough per ADR 140 §8. Demo
+	// Template uses these to set `hidepid=2` on /proc so the agent uid
+	// cannot enumerate ember-exec processes.
+	for _, s := range config.Sysctls {
+		addArg("--sysctl", s)
+	}
+	for _, s := range config.SecurityOpts {
+		addArg("--security-opt", s)
+	}
+
 	if config.HomeDir != "" {
 		registerMount(config.HomeDir, util.GetHomeDir(config.UnixUsername), false, true)
 	}

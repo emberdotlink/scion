@@ -49,6 +49,8 @@ type RunConfig struct {
 	MetadataInterception bool     // Add NET_ADMIN cap for iptables-based metadata server interception
 	ExtraHosts           []string // Extra /etc/hosts entries (e.g. "host.docker.internal:host-gateway")
 	NetworkMode          string   // Container network mode (e.g. "host" for --network=host)
+	Sysctls              []string // Docker --sysctl raw passthrough (ADR 140 §8 — hidepid=2 etc.)
+	SecurityOpts         []string // Docker --security-opt raw passthrough (ADR 140 §8)
 	Project              string   // Project name (e.g., "global" or "my-project")
 	ProjectID            string   // Project ID (e.g., "550e8400-e29b-41d4-a716-446655440000")
 }
