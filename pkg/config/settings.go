@@ -44,6 +44,7 @@ type HarnessConfig struct {
 	Env              map[string]string `json:"env,omitempty" yaml:"env,omitempty" koanf:"env"`
 	Volumes          []api.VolumeMount `json:"volumes,omitempty" yaml:"volumes,omitempty" koanf:"volumes"`
 	AuthSelectedType string            `json:"auth_selectedType,omitempty" yaml:"auth_selectedType,omitempty" koanf:"auth_selectedType"`
+	NetworkMode      string            `json:"network_mode,omitempty" yaml:"network_mode,omitempty" koanf:"network_mode"`
 }
 
 type HarnessOverride struct {
@@ -61,6 +62,7 @@ type ProfileConfig struct {
 	Volumes          []api.VolumeMount          `json:"volumes,omitempty" yaml:"volumes,omitempty" koanf:"volumes"`
 	Resources        *api.ResourceSpec          `json:"resources,omitempty" yaml:"resources,omitempty" koanf:"resources"`
 	HarnessOverrides map[string]HarnessOverride `json:"harness_overrides,omitempty" yaml:"harness_overrides,omitempty" koanf:"harness_overrides"`
+	NetworkMode      string                     `json:"network_mode,omitempty" yaml:"network_mode,omitempty" koanf:"network_mode"`
 }
 
 // BucketConfig defines settings for cloud storage bucket persistence.
