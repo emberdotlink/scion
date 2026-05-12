@@ -17,7 +17,9 @@ package services
 import (
 	"context"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -368,6 +370,61 @@ func TestManager_StartOrder(t *testing.T) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	mgr.Shutdown(shutdownCtx)
+}
+
+// TestManager_PerServiceUser verifies that ServiceSpec.User overrides the
+// default agent uid on a per-service basis. Two services in one Manager —
+// one with User unset, one with User=<current username> — must resolve to
+// distinct uid fields on their managedService records (per ADR 140 §8).
+func TestManager_PerServiceUser(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	cur, err := user.Current()
+	if err != nil {
+		t.Skipf("os/user.Current unavailable: %v", err)
+	}
+	curUID, err := strconv.Atoi(cur.Uid)
+	if err != nil {
+		t.Skipf("non-numeric current uid %q: %v", cur.Uid, err)
+	}
+
+	mgr := New(5 * time.Second)
+	specs := []api.ServiceSpec{
+		{Name: "default-user", Command: []string{"sleep", "30"}},
+		{Name: "explicit-user", Command: []string{"sleep", "30"}, User: cur.Username},
+	}
+
+	ctx := context.Background()
+	// Pass uid=0,gid=0 so the default-user service inherits 0/0 and the
+	// explicit-user service resolves to the current process uid — proving
+	// the override path actually fires.
+	if err := mgr.Start(ctx, specs, 0, 0, ""); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mgr.Shutdown(shutdownCtx)
+	}()
+
+	mgr.mu.Lock()
+	svcs := make([]*managedService, len(mgr.services))
+	copy(svcs, mgr.services)
+	mgr.mu.Unlock()
+
+	if len(svcs) != 2 {
+		t.Fatalf("expected 2 services, got %d", len(svcs))
+	}
+	if svcs[0].uid != 0 {
+		t.Errorf("default-user service: expected uid=0 (back-compat), got %d", svcs[0].uid)
+	}
+	if svcs[1].uid != curUID {
+		t.Errorf("explicit-user service: expected uid=%d (override), got %d", curUID, svcs[1].uid)
+	}
+	if svcs[0].uid == svcs[1].uid && curUID != 0 {
+		t.Errorf("two services in one container should have distinct uids when User differs")
+	}
 }
 
 func TestMergeEnv(t *testing.T) {

@@ -41,6 +41,11 @@ type ServiceSpec struct {
 	Restart    string            `json:"restart,omitempty" yaml:"restart,omitempty"`
 	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	ReadyCheck *ReadyCheck       `json:"ready_check,omitempty" yaml:"ready_check,omitempty"`
+	// User is an optional per-service uid override (username, not numeric uid).
+	// Empty defaults to the Manager.Start uid (the agent uid). Resolved via
+	// os/user.Lookup at Start time so two services in the same container can
+	// run as distinct uids (e.g. agent + ember-exec). Per ADR 140 §8.
+	User string `json:"user,omitempty" yaml:"user,omitempty"`
 }
 
 // ReadyCheck defines a readiness gate for a service.
