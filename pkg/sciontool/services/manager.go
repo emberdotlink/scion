@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -171,25 +173,46 @@ func (m *Manager) Start(ctx context.Context, specs []api.ServiceSpec, uid, gid i
 	m.mu.Unlock()
 
 	for _, spec := range specs {
+		// Resolve per-service uid: spec.User overrides the default agent uid
+		// when set. Empty preserves back-compat (agent uid). Per ADR 140 §8 —
+		// two-uid-in-one-container model (agent + ember-exec).
+		svcUID, svcGID, svcUsername := uid, gid, username
+		if spec.User != "" {
+			u, err := user.Lookup(spec.User)
+			if err != nil {
+				return fmt.Errorf("service %s: lookup user %q: %w", spec.Name, spec.User, err)
+			}
+			suid, err := strconv.Atoi(u.Uid)
+			if err != nil {
+				return fmt.Errorf("service %s: parse uid for %q: %w", spec.Name, spec.User, err)
+			}
+			sgid, err := strconv.Atoi(u.Gid)
+			if err != nil {
+				return fmt.Errorf("service %s: parse gid for %q: %w", spec.Name, spec.User, err)
+			}
+			svcUID, svcGID, svcUsername = suid, sgid, u.Username
+		}
 		svc := &managedService{
 			spec:     spec,
 			done:     make(chan struct{}),
 			logDir:   logDir,
-			uid:      uid,
-			gid:      gid,
-			username: username,
-			env:      mergeEnv(os.Environ(), spec.Env, uid, username),
+			uid:      svcUID,
+			gid:      svcGID,
+			username: svcUsername,
+			env:      mergeEnv(os.Environ(), spec.Env, svcUID, svcUsername),
 		}
 
 		if err := svc.openLogs(); err != nil {
 			return fmt.Errorf("service %s: failed to open log files: %w", spec.Name, err)
 		}
 
-		// Chown log files if running as non-root target
-		if uid > 0 && gid > 0 {
+		// Chown log files if running as non-root target. Use the per-service
+		// uid/gid (which may override the agent default via spec.User) so
+		// the service can write its own logs after the credential drop.
+		if svcUID > 0 && svcGID > 0 {
 			for _, f := range []*os.File{svc.stdoutFile, svc.stderrFile, svc.lifecycleFile} {
 				if f != nil {
-					_ = os.Chown(f.Name(), uid, gid)
+					_ = os.Chown(f.Name(), svcUID, svcGID)
 				}
 			}
 		}

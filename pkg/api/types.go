@@ -41,6 +41,11 @@ type ServiceSpec struct {
 	Restart    string            `json:"restart,omitempty" yaml:"restart,omitempty"`
 	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	ReadyCheck *ReadyCheck       `json:"ready_check,omitempty" yaml:"ready_check,omitempty"`
+	// User is an optional per-service uid override (username, not numeric uid).
+	// Empty defaults to the Manager.Start uid (the agent uid). Resolved via
+	// os/user.Lookup at Start time so two services in the same container can
+	// run as distinct uids (e.g. agent + ember-exec). Per ADR 140 §8.
+	User string `json:"user,omitempty" yaml:"user,omitempty"`
 }
 
 // ReadyCheck defines a readiness gate for a service.
@@ -427,6 +432,16 @@ type ScionConfig struct {
 	Image            string            `json:"image,omitempty" yaml:"image,omitempty"`
 	NetworkMode      string            `json:"network_mode,omitempty" yaml:"network_mode,omitempty"`
 	Services         []ServiceSpec     `json:"services,omitempty" yaml:"services,omitempty"`
+	// Sysctls is a raw passthrough to Docker's `--sysctl key=value`. Per ADR
+	// 140 §8 — needed for the ember-exec two-uid model where `/proc` must be
+	// mounted with hidepid=2 so the agent uid cannot enumerate ember-exec
+	// processes. May need a typed allowlist before upstream merge; ship raw
+	// on the fork for now.
+	Sysctls []string `json:"sysctls,omitempty" yaml:"sysctls,omitempty"`
+	// SecurityOpts is a raw passthrough to Docker's `--security-opt value`.
+	// Per ADR 140 §8 — companion to Sysctls. Same upstream caveat. Field
+	// reference for target_state_grep callers: ScionConfig.SecurityOpts.
+	SecurityOpts []string `json:"security_opts,omitempty" yaml:"security_opts,omitempty"`
 	// MCPServers is the universal MCP server map. Keys are server names; values
 	// are the transport-agnostic config translated by each harness's
 	// container-side provisioner into native format.

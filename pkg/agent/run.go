@@ -892,6 +892,18 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		MetadataInterception: hasMetadataInterception(agentEnv),
 		ExtraHosts:           mergeExtraHosts(opts.ExtraHosts, runtime.BridgeExtraHosts(m.Runtime.Name(), agentEnv)),
 		NetworkMode:          dockerNetworkMode,
+		Sysctls: func() []string {
+			if finalScionCfg != nil {
+				return finalScionCfg.Sysctls
+			}
+			return nil
+		}(),
+		SecurityOpts: func() []string {
+			if finalScionCfg != nil {
+				return finalScionCfg.SecurityOpts
+			}
+			return nil
+		}(),
 		Labels: func() map[string]string {
 			l := map[string]string{
 				"scion.agent":          "true",
